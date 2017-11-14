@@ -3,7 +3,6 @@
  *   */
 
 #include "mpi.h"
-#include <time.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <stdio.h>
@@ -118,17 +117,20 @@ void get_player_new_position(int* position, int* ball_position) {
 		position[1] = ball_position[1];
 		return;
 	}
-	// always run horizontally first
-	int remaining_run = MAX_RUN;
+	int max_step_x = min(MAX_RUN, abs(dis_x));
+	int max_step_y = min(MAX_RUN, abs(dis_y));
+
+	int step_x = rand() % (max_step_x + 1);
+	int step_y = MAX_RUN - step_x;
+	while (step_y > max_step_y) {
+		step_y--;
+		step_x++;
+	}
 	if (dis_x != 0) {
-		int step = min(remaining_run, abs(dis_x));
-		remaining_run -= step;
-		position[0] += step * dis_x / abs(dis_x);
+		position[0] += step_x * dis_x / abs(dis_x);
 	}
 	if (dis_y != 0) {
-		int step = min(remaining_run, abs(dis_y));
-		remaining_run -= step;
-		position[1] += step * dis_y / abs(dis_y);
+		position[1] += step_y * dis_y / abs(dis_y);
 	}
 }
 
