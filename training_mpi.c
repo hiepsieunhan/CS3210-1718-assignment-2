@@ -184,7 +184,7 @@ void print_players_info(int round, PlayerInfo* players_info,
 }
 
 void print_final_player_info(int rank, int* player_position, int *pre_player_position, PlayerInfo player_info) {
-	printf("-------Player %d -------Position: (%d, %d) -> (%d, %d) ----- meter_run :%d ------ reached ball: %d ----- kicked ball %d -----\n",
+	printf("---Player %d ----Position: (%d, %d) -> (%d, %d) --- meter_run :%d ---- reached ball: %d --- kicked ball %d\n",
 		rank, pre_player_position[0], pre_player_position[1], player_position[0], player_position[1],
 		player_info.total_meters_run, player_info.reached_ball_cnt, player_info.kicked_ball_cnt);
 }
@@ -229,23 +229,24 @@ int main(int argc, char *argv[])
 		}
 
 		MPI_Waitall(NUM_PLAYER, reqs, MPI_STATUSES_IGNORE);
-		printf("Process rank %d finish init player position:\n", rank);
-		for (i = 0; i < NUM_PLAYER; i++) {
-			printf("Player %d: %d %d\n", i, players_position[i][0], players_position[i][1]);
-		}
+		// printf("Process rank %d finish init player position:\n", rank);
+		// for (i = 0; i < NUM_PLAYER; i++) {
+		// 	printf("Player %d: %d %d\n", i, players_position[i][0], players_position[i][1]);
+		// }
+		// printf("Initial ball position: %d %d\n", ball_position[0], ball_position[1]);
 	} else {	
 		receive_position_from_field(player_position, tag);
 		player_info.reached_ball_cnt = 0;
 		player_info.kicked_ball_cnt = 0;
 		player_info.total_meters_run = 0;
-		printf("Process rank %d receive position of the ball: %d %d\n", rank, player_position[0], player_position[1]);
+		// printf("Process rank %d receive position of the ball: %d %d\n", rank, player_position[0], player_position[1]);
 	}	
 
 	MPI_Barrier(MPI_COMM_WORLD);
 
 	int round_cnt = 0;
 	if (rank == FIELD_RANK) {
-		printf("Start traning...");
+		// printf("Start traning...\n");
 	}
 
 	while (round_cnt < TOTAL_ROUND) {
@@ -287,9 +288,9 @@ int main(int argc, char *argv[])
 		MPI_Barrier(MPI_COMM_WORLD);
 	}
 
-	if (rank != FIELD_RANK) {
-		print_final_player_info(rank, player_position, pre_player_position, player_info);
-	}
+	// if (rank != FIELD_RANK) {
+	// 	print_final_player_info(rank, player_position, pre_player_position, player_info);
+	// }
 
     MPI_Finalize();
     
