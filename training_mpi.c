@@ -258,9 +258,9 @@ int main(int argc, char *argv[])
 		if (rank == FIELD_RANK) {
 			send_position_to_players(reqs, ball_position, tag);
 			receive_position_from_players(reqs, players_position, tag);
+			assign_position(pre_ball_position, ball_position);
 			int winner = get_ball_winner(players_position, ball_position);
 			if (winner >= 0) {
-				assign_position(pre_ball_position, ball_position);
 				send_ball_winner_to_players(reqs, players_position, ball_position, winner, tag);
 				receive_ball_position_from_player(winner, ball_position, tag);
 			}
