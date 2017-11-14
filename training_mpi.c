@@ -1,6 +1,6 @@
 /**
- *  * CS3210 - Non-blocking communication in MPI.
- *   */
+ ** CS3210 - AY201718 - Assignment 2: Traning football parallel using MPI
+ **/
 
 #include "mpi.h"
 #include <stdlib.h>
@@ -25,20 +25,24 @@ typedef struct {
 	int total_meters_run;
 } PlayerInfo;
 
+// This method produce random position in the field
 void get_random_position(int* x) {
 	x[0] = (rand() % (FIELD_WIDTH + 1));
 	x[1] = (rand() % (FIELD_HEIGHT + 1));
 }
 
+// This method compare 2 position and return true if they are the same
 bool is_same(int* l_post, int* r_post) {
 	return l_post[0] == r_post[0] && l_post[1] == r_post[1];
 }
 
+// This assign the first position to the second one
 void assign_position(int* l_pos, int* r_pos) {
 	l_pos[0] = r_pos[0];
 	l_pos[1] = r_pos[1];
 }
 
+// This method create 2d array of dimension length x size
 int** malloc_2d_array(int length, int size) {
 	int** array = (int **)malloc(sizeof(int*) * length); 
 	int i;
@@ -48,6 +52,7 @@ int** malloc_2d_array(int length, int size) {
 	return array;
 }
 
+// This method initialize all players position randomly
 int** init_players_position(int num_player) {
 	int** players_position = malloc_2d_array(num_player, 2);
 	int i;
@@ -57,6 +62,7 @@ int** init_players_position(int num_player) {
 	return players_position;
 }
 
+// Broadcast a position from field to all players
 void send_position_to_players(MPI_Request* reqs, int* position, int tag) {
 	int i;
 	for (i = 0; i < NUM_PLAYER; i++) {
@@ -65,6 +71,7 @@ void send_position_to_players(MPI_Request* reqs, int* position, int tag) {
 	MPI_Waitall(NUM_PLAYER, reqs, MPI_STATUSES_IGNORE);
 } 
 
+// Send position of players to the corresponding process
 void send_player_position_to_players(MPI_Request* reqs, int** players_position, int tag) {
 	int i;
 	for (i = 0; i < NUM_PLAYER; i++) {
@@ -87,10 +94,12 @@ void send_ball_winner_to_players(MPI_Request* reqs, int** players_position, int*
 	MPI_Waitall(req_cnt, reqs, MPI_STATUSES_IGNORE);
 } 
 
+// Get the ball winner player from the field process
 void receive_ball_winner_from_field(int* winner, int tag) {
 	MPI_Recv(winner, 1, MPI_INT, FIELD_RANK, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 }
 
+// Get all players position from all player processes
 void receive_position_from_players(MPI_Request* reqs, int** players_position, int tag) {
 	int i;
 	for (i = 0; i < NUM_PLAYER; i++) {
@@ -99,18 +108,22 @@ void receive_position_from_players(MPI_Request* reqs, int** players_position, in
 	MPI_Waitall(NUM_PLAYER, reqs, MPI_STATUSES_IGNORE);
 }
 
+// Get the new ball position from the winner, after he kicked the ball
 void receive_ball_position_from_player(int winner, int* ball_position, int tag) {
 	MPI_Recv(ball_position, 2, MPI_INT, winner, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 }
 
+// Get the position sent by field process
 void receive_position_from_field(int* position, int tag) {
 	MPI_Recv(position, 2, MPI_INT, FIELD_RANK, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 }
 
+// Send some position from player process to field process
 void send_position_to_field(int* position, int tag) {
 	MPI_Send(position, 2, MPI_INT, FIELD_RANK, tag, MPI_COMM_WORLD);
 }
 
+// Send all necessary player info from player to the field process, after each round
 void send_player_info_to_field(int* pre_player_position, PlayerInfo player_info, bool is_won_ball, bool is_reached_ball, int tag) {
 	int* buf = (int*)malloc(sizeof(int) * 7);
 	buf[0] = pre_player_position[0];
@@ -124,6 +137,7 @@ void send_player_info_to_field(int* pre_player_position, PlayerInfo player_info,
 	free(buf);
 }
 
+// Collect all players information after each round
 void receive_info_from_players(MPI_Request* reqs, int** players_info, int tag) {
 	int i;
 	for (i = 0; i < NUM_PLAYER; i++) {
@@ -132,6 +146,7 @@ void receive_info_from_players(MPI_Request* reqs, int** players_info, int tag) {
 	MPI_Waitall(NUM_PLAYER, reqs, MPI_STATUSES_IGNORE);
 }
 
+// Make player run forward the ball direction randomly 
 void get_player_new_position(int* position, int* ball_position) {
 	int dis_x = ball_position[0] - position[0];
 	int dis_y = ball_position[1] - position[1];
@@ -190,14 +205,7 @@ void print_players_info(int round, int** players_info, int** players_position, i
 	printf("-----------------\n");
 }
 
-void print_final_player_info(int rank, int* player_position, int *pre_player_position, PlayerInfo player_info) {
-	printf("---Player %d ----Position: (%d, %d) -> (%d, %d) --- meter_run :%d ---- reached ball: %d --- kicked ball %d\n",
-		rank, pre_player_position[0], pre_player_position[1], player_position[0], player_position[1],
-		player_info.total_meters_run, player_info.reached_ball_cnt, player_info.kicked_ball_cnt);
-}
-
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     int numtasks, rank, tag = 0;
 	MPI_Request* reqs = NULL;
 	int** players_position = NULL;
@@ -211,7 +219,6 @@ int main(int argc, char *argv[])
 	bool is_won_ball = false;
 	bool is_reached_ball = false;
 	PlayerInfo player_info;
-	// MPI_Request req;
     
     MPI_Init(&argc,&argv);
     MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
@@ -228,31 +235,24 @@ int main(int argc, char *argv[])
 	// Init all players and ball position
 	if (rank == FIELD_RANK) {
 		reqs = (MPI_Request*)malloc(sizeof(MPI_Request) * NUM_PLAYER);
-		// stats = (MPI_Status*)(sizeof(MPI_Status) * NUM_PLAYER);
 		players_position = init_players_position(NUM_PLAYER);
 		players_info = malloc_2d_array(NUM_PLAYER, 7);
 		get_random_position(ball_position);
 		send_player_position_to_players(reqs, players_position, tag);
-		// printf("Process rank %d finish init player position:\n", rank);
-		// for (i = 0; i < NUM_PLAYER; i++) {
-		// 	printf("Player %d: %d %d\n", i, players_position[i][0], players_position[i][1]);
-		// }
-		// printf("Initial ball position: %d %d\n", ball_position[0], ball_position[1]);
 	} else {	
 		receive_position_from_field(player_position, tag);
 		player_info.reached_ball_cnt = 0;
 		player_info.kicked_ball_cnt = 0;
 		player_info.total_meters_run = 0;
-		// printf("Process rank %d receive position of the ball: %d %d\n", rank, player_position[0], player_position[1]);
 	}	
 
 	MPI_Barrier(MPI_COMM_WORLD);
 
+	
+	// Start training
 	int round_cnt = 0;
-	if (rank == FIELD_RANK) {
-		// printf("Start traning...\n");
-	}
-
+	
+	// TODO: move these to 2 separated methods
 	while (round_cnt < TOTAL_ROUND) {
 		round_cnt++;
 		if (rank == FIELD_RANK) {
@@ -294,10 +294,6 @@ int main(int argc, char *argv[])
 		}
 		MPI_Barrier(MPI_COMM_WORLD);
 	}
-
-	// if (rank != FIELD_RANK) {
-	// 	print_final_player_info(rank, player_position, pre_player_position, player_info);
-	// }
 
     MPI_Finalize();
     
