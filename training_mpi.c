@@ -213,7 +213,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
-	srand(time(NULL));
+	srand(rank);
 
 	// Init all players and ball position
 	if (rank == FIELD_RANK) {
