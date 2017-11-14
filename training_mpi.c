@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <time.h>
 
 #define min(a, b) (a < b ? a : b)
 
@@ -222,7 +223,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
-	srand(rank);
+	srand(time(NULL) * rank);
 
 	// Init all players and ball position
 	if (rank == FIELD_RANK) {
@@ -230,6 +231,7 @@ int main(int argc, char *argv[])
 		// stats = (MPI_Status*)(sizeof(MPI_Status) * NUM_PLAYER);
 		players_position = init_players_position(NUM_PLAYER);
 		players_info = malloc_2d_array(NUM_PLAYER, 7);
+		get_random_position(ball_position);
 		send_player_position_to_players(reqs, players_position, tag);
 		// printf("Process rank %d finish init player position:\n", rank);
 		// for (i = 0; i < NUM_PLAYER; i++) {
