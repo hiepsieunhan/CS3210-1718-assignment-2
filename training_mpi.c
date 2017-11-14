@@ -33,28 +33,22 @@ bool is_same(int* l_post, int* r_post) {
 	return l_post[0] == r_post[0] && l_post[1] == r_post[1];
 }
 
-int** malloc_players_position(int num_player) {
-	int** players_position = (int **)malloc(sizeof(int*) * num_player); 
-	int i;
-	for (i = 0; i < num_player; i++) {
-		players_position[i] = (int*)malloc(sizeof(int) * 2);
-	}
-	return players_position;
+void assign_position(int* l_pos, int* r_pos) {
+	l_pos[0] = r_pos[0];
+	l_pos[1] = r_pos[1];
 }
 
-PlayerInfo* malloc_players_info(int num_player) {
-	PlayerInfo* players_info = (PlayerInfo*)malloc(sizeof(PlayerInfo) * num_player);
+int** malloc_2d_array(int length, int size) {
+	int** array = (int **)malloc(sizeof(int*) * length); 
 	int i;
-	for (i = 0; i < num_player; i++) {
-		players_info[i].kicked_ball_cnt = 0;
-		players_info[i].reached_ball_cnt = 0;
-		players_info[i].total_meters_run = 0;
+	for (i = 0; i < length; i++) {
+		array[i] = (int*)malloc(sizeof(int) * size);
 	}
-	return players_info;
+	return array;
 }
 
 int** init_players_position(int num_player) {
-	int** players_position = malloc_players_position(num_player);
+	int** players_position = malloc_2d_array(num_player, 2);
 	int i;
 	for (i = 0; i < num_player; i++) {
 		get_random_position(players_position[i]);
@@ -70,6 +64,13 @@ void send_position_to_players(MPI_Request* reqs, int* position, int tag) {
 	MPI_Waitall(NUM_PLAYER, reqs, MPI_STATUSES_IGNORE);
 } 
 
+void send_player_position_to_players(MPI_Request* reqs, int** players_position, int tag) {
+	int i;
+	for (i = 0; i < NUM_PLAYER; i++) {
+		MPI_Isend(players_position[i], 2, MPI_INT, i, tag, MPI_COMM_WORLD, &reqs[i]);
+	}
+	MPI_Waitall(NUM_PLAYER, reqs, MPI_STATUSES_IGNORE);
+}
 
 // send the ball winner to all the players who reached the ball
 void send_ball_winner_to_players(MPI_Request* reqs, int** players_position, int* ball_position, int winner, int tag) {
@@ -107,6 +108,27 @@ void receive_position_from_field(int* position, int tag) {
 
 void send_position_to_field(int* position, int tag) {
 	MPI_Send(position, 2, MPI_INT, FIELD_RANK, tag, MPI_COMM_WORLD);
+}
+
+void send_player_info_to_field(int* pre_player_position, PlayerInfo player_info, bool is_won_ball, bool is_reached_ball, int tag) {
+	int* buf = (int*)malloc(sizeof(int) * 7);
+	buf[0] = pre_player_position[0];
+	buf[1] = pre_player_position[1];
+	buf[2] = player_info.total_meters_run;
+	buf[3] = player_info.reached_ball_cnt;
+	buf[4] = player_info.kicked_ball_cnt;
+	buf[5] = (int)is_won_ball;
+	buf[6] = (int)is_reached_ball;
+	MPI_Send(buf, 7, MPI_INT, FIELD_RANK, tag, MPI_COMM_WORLD);
+	free(buf);
+}
+
+void receive_info_from_players(MPI_Request* reqs, int** players_info, int tag) {
+	int i;
+	for (i = 0; i < NUM_PLAYER; i++) {
+		MPI_Irecv(players_info[i], 7, MPI_INT, i, tag, MPI_COMM_WORLD, &reqs[i]);
+	}
+	MPI_Waitall(NUM_PLAYER, reqs, MPI_STATUSES_IGNORE);
 }
 
 void get_player_new_position(int* position, int* ball_position) {
@@ -153,34 +175,16 @@ int get_distance(int* a, int* b) {
 	return abs(a[0] - b[0]) + abs(a[1] - b[1]);
 }
 
-void update_players_info(PlayerInfo* players_info, int** pre_players_position, int** players_position,
-						int* ball_position, int winner) {
-	int i;
-	for (i = 0; i < NUM_PLAYER; i++) {
-		players_info[i].total_meters_run +=  get_distance(pre_players_position[i], players_position[i]);
-		if (is_same(players_position[i], ball_position)) {
-			players_info[i].reached_ball_cnt++;
-		}
-		if (i == winner) {
-			players_info[i].kicked_ball_cnt++;
-		}
-	}
-}
-
-void print_players_info(int round, PlayerInfo* players_info,
-						int** pre_players_position, int** players_position,
-						int* ball_position, int winner) {
+void print_players_info(int round, int** players_info, int** players_position, int* pre_ball_position) {
 	printf("%d\n", round);
-	printf("%d %d\n", ball_position[0], ball_position[1]);
+	printf("%d %d\n", pre_ball_position[0], pre_ball_position[1]);
 	int i;
 	for (i = 0; i < NUM_PLAYER; i++) {
-		bool is_reached_ball = is_same(players_position[i], ball_position);
-		bool is_won_ball = (winner == i);
-		printf("%d %d %d %d %d %d %d %d %d %d\n", i, pre_players_position[i][0], pre_players_position[i][1],
+		printf("%d %d %d %d %d %d %d %d %d %d\n", i, players_info[i][0], players_info[i][1],
 												players_position[i][0], players_position[i][1],
-												(int)is_reached_ball, (int)is_won_ball,
-												players_info[i].total_meters_run,
-												players_info[i].reached_ball_cnt, players_info[i].kicked_ball_cnt);
+												players_info[i][6], players_info[i][5],
+												players_info[i][2],
+												players_info[i][3], players_info[i][4]);
 	}
 	printf("-----------------\n");
 }
@@ -196,12 +200,15 @@ int main(int argc, char *argv[])
     int numtasks, rank, tag = 0;
 	MPI_Request* reqs = NULL;
 	int** players_position = NULL;
-	int** pre_players_position = NULL;
-	PlayerInfo* players_info = NULL;
+	// This is NUM_PLAYER x 7 2D array to collect players info after each round
+	int** players_info = NULL;
 
 	int ball_position[2] = {0, 0};
+	int pre_ball_position[2] = {0, 0};
 	int pre_player_position[2] = {0, 0};
 	int player_position[2] = {0, 0};
+	bool is_won_ball = false;
+	bool is_reached_ball = false;
 	PlayerInfo player_info;
 	// MPI_Request req;
     
@@ -222,15 +229,8 @@ int main(int argc, char *argv[])
 		reqs = (MPI_Request*)malloc(sizeof(MPI_Request) * NUM_PLAYER);
 		// stats = (MPI_Status*)(sizeof(MPI_Status) * NUM_PLAYER);
 		players_position = init_players_position(NUM_PLAYER);
-		pre_players_position = malloc_players_position(NUM_PLAYER);
-		players_info = malloc_players_info(NUM_PLAYER);
-		get_random_position(ball_position);
-		int i;
-		for (i = 0; i < NUM_PLAYER; i++) {
-			MPI_Isend(players_position[i], 2, MPI_INT, i, tag, MPI_COMM_WORLD, &reqs[i]);
-		}
-
-		MPI_Waitall(NUM_PLAYER, reqs, MPI_STATUSES_IGNORE);
+		players_info = malloc_2d_array(NUM_PLAYER, 7);
+		send_player_position_to_players(reqs, players_position, tag);
 		// printf("Process rank %d finish init player position:\n", rank);
 		// for (i = 0; i < NUM_PLAYER; i++) {
 		// 	printf("Player %d: %d %d\n", i, players_position[i][0], players_position[i][1]);
@@ -255,37 +255,40 @@ int main(int argc, char *argv[])
 		round_cnt++;
 		if (rank == FIELD_RANK) {
 			send_position_to_players(reqs, ball_position, tag);
-			// swap
-			{
-				int** tmp = players_position;
-				players_position = pre_players_position;
-				pre_players_position = tmp;
-			}
 			receive_position_from_players(reqs, players_position, tag);
 			int winner = get_ball_winner(players_position, ball_position);
-			update_players_info(players_info, pre_players_position, players_position, ball_position, winner);
 			if (winner >= 0) {
+				assign_position(pre_ball_position, ball_position);
 				send_ball_winner_to_players(reqs, players_position, ball_position, winner, tag);
 				receive_ball_position_from_player(winner, ball_position, tag);
 			}
-			print_players_info(round_cnt, players_info, pre_players_position, players_position, ball_position, winner);
+			receive_info_from_players(reqs, players_info, tag);
+			print_players_info(round_cnt, players_info, players_position, pre_ball_position);
 		} else {
+			is_won_ball = false;
+			is_reached_ball = false;
 			receive_position_from_field(ball_position, tag);
-			pre_player_position[0] = player_position[0];
-			pre_player_position[1] = player_position[1];
+			assign_position(pre_player_position, player_position);
 			get_player_new_position(player_position, ball_position);
-			player_info.total_meters_run += get_distance(pre_player_position, player_position);
 			send_position_to_field(player_position, tag);
 			if (is_same(ball_position, player_position)) {
-				player_info.reached_ball_cnt++;
+				is_reached_ball = true;
 				int winner;
 				receive_ball_winner_from_field(&winner, tag);
 				if (winner == rank) {
-					player_info.kicked_ball_cnt++;
+					is_won_ball = true;
 					get_random_position(ball_position);
 					send_position_to_field(ball_position, tag);
 				}
 			}
+			player_info.total_meters_run += get_distance(pre_player_position, player_position);
+			if (is_won_ball) {
+				player_info.kicked_ball_cnt++;
+			}
+			if (is_reached_ball) {
+				player_info.reached_ball_cnt++;
+			}
+			send_player_info_to_field(pre_player_position, player_info, is_won_ball, is_reached_ball, tag);
 		}
 		MPI_Barrier(MPI_COMM_WORLD);
 	}
