@@ -7,13 +7,16 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <stdio.h>
-#define NUM_PROC 12
-#define NUM_PLAYER 11
-#define FIELD_WIDTH 128
-#define FIELD_HEIGHT 64
-#define FIELD_RANK 11
-#define MAX_RUN 10
-#define swap(a, b) {typeof(x) _tmp = x; x = y; y = _tmp;}
+#include <stdbool.h>
+
+#define min(a, b) (a < b ? a : b)
+
+const int NUM_PROC = 12;
+const int NUM_PLAYER = 11;
+const int FIELD_WIDTH = 128;
+const int FIELD_HEIGHT = 64;
+const int FIELD_RANK = 11;
+const int MAX_RUN = 10;
 
 void get_random_position(int* x) {
 	x[0] = (rand() % (FIELD_WIDTH + 1));
@@ -90,8 +93,8 @@ void send_position_to_field(int* position, int tag) {
 }
 
 void get_player_new_position(int* position, int* ball_position) {
-	int dis_x = ball_position[0] - cur_position[0];
-	int dis_y = ball_position[1] - cur_position[1];
+	int dis_x = ball_position[0] - position[0];
+	int dis_y = ball_position[1] - position[1];
 	if (abs(dis_x) + abs(dis_y) <= MAX_RUN) {
 		position[0] = ball_position[0];
 		position[1] = ball_position[1];
@@ -156,7 +159,7 @@ int main(int argc, char *argv[])
 		reqs = (MPI_Request*)malloc(sizeof(MPI_Request) * NUM_PLAYER);
 		// stats = (MPI_Status*)(sizeof(MPI_Status) * NUM_PLAYER);
 		players_position = init_players_position(NUM_PLAYER);
-		pre_players_position = malloc_player_position(NUM_PlAYER);
+		pre_players_position = malloc_players_position(NUM_PLAYER);
 		get_random_position(ball_position);
 		int i;
 		for (i = 0; i < NUM_PLAYER; i++) {
@@ -172,7 +175,7 @@ int main(int argc, char *argv[])
 		receive_position_from_field(player_position, tag);
 		reached_ball_cnt = 0;
 		kicked_ball_cnt = 0;
-		printf("Process rank %d receive position of the ball: %d %d\n", rank, player.x, player.y);
+		printf("Process rank %d receive position of the ball: %d %d\n", rank, player_position[0], player_position[1]);
 	}	
 
 	MPI_Barrier(MPI_COMM_WORLD);
@@ -186,7 +189,12 @@ int main(int argc, char *argv[])
 		round_cnt--;
 		if (rank == FIELD_RANK) {
 			send_position_to_players(reqs, ball_position, tag);
-			swap(pre_players_position, players_position);
+			// swap
+			{
+				int** tmp = players_position;
+				players_position = pre_players_position;
+				pre_players_position = tmp;
+			}
 			receive_position_from_players(reqs, players_position, tag);
 			int winner = get_ball_winner(players_position, ball_position);
 			if (winner >= 0) {
@@ -196,13 +204,13 @@ int main(int argc, char *argv[])
 		} else {
 			receive_position_from_field(ball_position, tag);
 			get_player_new_position(ball_position, player_position);
-			send_position_to_field(player_position);
+			send_position_to_field(player_position, tag);
 			if (is_same(ball_position, player_position)) {
 				int winner;
-				receive_ball_winner_from_field((winner, tag);
+				receive_ball_winner_from_field(&winner, tag);
 				if (winner == rank) {
 					get_random_position(ball_position);
-					send_position_to_field(ball_position);
+					send_position_to_field(ball_position, tag);
 				}
 			}
 		}
