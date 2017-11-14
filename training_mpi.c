@@ -20,6 +20,10 @@ void get_random_position(int* x) {
 	x[1] = (rand() % (FIELD_HEIGHT + 1));
 }
 
+bool is_same(int* l_post, int* r_post) {
+	return l_post[0] == r_post[0] && l_post[1] == r_post[1];
+}
+
 int** malloc_players_position(int num_player) {
 	int** players_position = (int **)malloc(sizeof(int*) * num_player); 
 	int i;
@@ -38,7 +42,7 @@ int** init_players_position(int num_player) {
 	return players_position;
 }
 
-void send_position_to_player(MPI_Request* reqs, int* position, int tag) {
+void send_position_to_players(MPI_Request* reqs, int* position, int tag) {
 	int i;
 	for (i = 0; i < NUM_PLAYER; i++) {
 		MPI_Isend(position, 2, MPI_INT, i, tag, MPI_COMM_WORLD, &reqs[i]);
@@ -46,7 +50,26 @@ void send_position_to_player(MPI_Request* reqs, int* position, int tag) {
 	MPI_Waitall(NUM_PLAYER, reqs, MPI_STATUSES_IGNORE);
 } 
 
-void receive_players_position(MPI_Request* reqs, int** players_position, int tag) {
+
+// send the ball winner to all the players who reached the ball
+void send_ball_winner_to_players(MPI_Request* reqs, int** players_position, int* ball_position, int winner, int tag) {
+	if (winner < 0 || winner >= NUM_PLAYER) {
+		return;
+	}
+	int i;
+	int req_cnt = 0;
+	for (i = 0; i < NUM_PLAYER; i++) if (is_same(players_position[i], ball_position)) {
+		MPI_Isend(&winner, 1, MPI_INT, i, tag, MPI_COMM_WORLD, &reqs[req_cnt]);
+		req_cnt++;
+	}
+	MPI_Waitall(req_cnt, reqs, MPI_STATUSES_IGNORE);
+} 
+
+void receive_ball_winner_from_field(int* winner, int tag) {
+	MPI_Recv(winner, 1, MPI_INT, FIELD_RANK, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+}
+
+void receive_position_from_players(MPI_Request* reqs, int** players_position, int tag) {
 	int i;
 	for (i = 0; i < NUM_PLAYER; i++) {
 		MPI_Isend(players_position[i], 2, MPI_INT, i, tag, MPI_COMM_WORLD, &reqs[i]);
@@ -54,11 +77,15 @@ void receive_players_position(MPI_Request* reqs, int** players_position, int tag
 	MPI_Waitall(NUM_PLAYER, reqs, MPI_STATUSES_IGNORE);
 }
 
-void receive_position(int* position, int tag) {
+void receive_ball_position_from_player(int winner, int* ball_position, int tag) {
+	MPI_Recv(ball_position, 2, MPI_INT, winner, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+}
+
+void receive_position_from_field(int* position, int tag) {
 	MPI_Recv(position, 2, MPI_INT, FIELD_RANK, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 }
 
-void send_position(int* position, int tag) {
+void send_position_to_field(int* position, int tag) {
 	MPI_Send(position, 2, MPI_INT, FIELD_RANK, tag, MPI_COMM_WORLD);
 }
 
@@ -89,10 +116,7 @@ int get_ball_winner(int** players_position, int* ball_position) {
 	int max_weight = -1;
 	int winner = -1;
 	int i;
-	for (i = 0; i < NUM_PLAYER; i++) if (
-		players_position[i][0] == ball_position[0] 
-		&& players_position[i][1] == ball_position[1]
-	) {
+	for (i = 0; i < NUM_PLAYER; i++) if (is_same(players_position[i], ball_position)) {
 		int random_weight = rand();
 		if (winner < 0 || max_weight < random_weight) {
 			max_weight = random_weight;
@@ -109,7 +133,6 @@ int main(int argc, char *argv[])
 	int** players_position = NULL;
 	int** pre_players_position = NULL;
 
-	int buf[2] = {0, 0};
 	int ball_position[2] = {0, 0};
 	int player_position[2] = {0, 0};
 	int kicked_ball_cnt = 0;
@@ -146,7 +169,7 @@ int main(int argc, char *argv[])
 			printf("Player %d: %d %d\n", i, players_position[i][0], players_position[i][1]);
 		}
 	} else {	
-		receive_position(player_position, tag);
+		receive_position_from_field(player_position, tag);
 		reached_ball_cnt = 0;
 		kicked_ball_cnt = 0;
 		printf("Process rank %d receive position of the ball: %d %d\n", rank, player.x, player.y);
@@ -154,7 +177,7 @@ int main(int argc, char *argv[])
 
 	MPI_Barrier(MPI_COMM_WORLD);
 
-	int round_cnt = 10;
+	int round_cnt = 900;
 	if (rank == FIELD_RANK) {
 		printf("Start traning...");
 	}
@@ -164,11 +187,24 @@ int main(int argc, char *argv[])
 		if (rank == FIELD_RANK) {
 			send_position_to_players(reqs, ball_position, tag);
 			swap(pre_players_position, players_position);
-			receive_players_position(reqs, players_position, tag);
+			receive_position_from_players(reqs, players_position, tag);
+			int winner = get_ball_winner(players_position, ball_position);
+			if (winner >= 0) {
+				send_ball_winner_to_players(reqs, players_position, ball_position, winner, tag);
+				receive_ball_position_from_player(winner, ball_position, tag);
+			}
 		} else {
-			receive_position(ball_position, tag);
+			receive_position_from_field(ball_position, tag);
 			get_player_new_position(ball_position, player_position);
-			send_position(player_position);
+			send_position_to_field(player_position);
+			if (is_same(ball_position, player_position)) {
+				int winner;
+				receive_ball_winner_from_field((winner, tag);
+				if (winner == rank) {
+					get_random_position(ball_position);
+					send_position_to_field(ball_position);
+				}
+			}
 		}
 		MPI_Barrier(MPI_COMM_WORLD);
 	}
