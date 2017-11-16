@@ -11,16 +11,16 @@
 #include <sys/time.h>
 #include <assert.h>
 
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 32
 
 int size;
 
 typedef struct
 {
-int width;
-int height;
-int stride;
-float ** element;
+    int width;
+    int height;
+    int stride;
+    float* elements;
 } matrix;
 
 
@@ -45,31 +45,17 @@ long long wall_clock_time()
 **/
 void allocate_matrix(matrix* m)
 {
-    int i;
     cudaError_t rc;
     
     m->width = size;
     m->height = size;
     m->stride = size;
 
-    // allocate array for all the rows
-    rc = cudaMallocManaged((void**)&(m->element), sizeof(float*) * size);
-    if (rc != cudaSuccess) {
-        fprintf(stderr, "CUDA error: %s\n", cudaGetErrorString(rc));
-        exit(1);
-    }
-    
     // allocate all matrix elements in one array of continuous addresses
-    float* array;
-    rc = cudaMallocManaged((void**)&array, sizeof(float) * size * size);
+    rc = cudaMallocManaged((void**)&(m->elements), sizeof(float) * size * size);
     if (rc != cudaSuccess) {
         fprintf(stderr, "CUDA error: %s\n", cudaGetErrorString(rc));
         exit(1);
-    }
-
-    // allocate an array for each row of the matrix
-    for (i = 0; i < size; i++) {
-        m->element[i] = &(array[i * size]);
     }
 }
 
@@ -77,8 +63,7 @@ void allocate_matrix(matrix* m)
 * Free the memory allocated for a matrix.
 **/
 void free_matrix(matrix* m) {
-    cudaFree(m->element[0]);
-    cudaFree(m->element);
+    cudaFree(m->elements);
 }
 
 /**
@@ -92,7 +77,7 @@ void init_matrix(matrix m)
     for (i = 0; i < size; i++)
         for (j = 0; j < size; j++)
         {
-            m.element[i][j] = rand() % 10;
+            m.elements[i * m.width + j] = rand() % 10;
         }
 }
 
@@ -107,7 +92,7 @@ void init_matrix_zero(matrix m)
     for (i = 0; i < size; i++)
         for (j = 0; j < size; j++)
         {
-            m.element[i][j] = 0.0;
+            m.elements[i * m.width + j] = 0.0;
         }
 }
 
@@ -115,22 +100,23 @@ void init_matrix_zero(matrix m)
 * Get element  at row, col of sub matrix
 */
 __device__ float get_element(const matrix a, int row, int col) {
-    return a->element[0][row * a.stride + col];
+    return a.elements[row * a.stride + col];
 }
 
 /**
 * Set element at row, col of sub matrix
 */
 __device__ void set_element(const matrix a, int row, int col, float value) {
-    a->element[0][row * a.stride + col] = value;
+    a.elements[row * a.stride + col] = value;
 }
 
 __device__ matrix get_sub_matrix(matrix a, int row, int col) {
     matrix a_sub;
-    a_sub.width = size;
-    a_sub.width = size;
+    a_sub.width = BLOCK_SIZE;
+    a_sub.height = BLOCK_SIZE;
     a_sub.stride = a.stride;
-    a_sub.element = &a.element[a.stride * BLOCK_SIZE * row][BLOCK_SIZE * col];
+    a_sub.elements = &a.elements[a.stride * BLOCK_SIZE * row + BLOCK_SIZE * col];
+    return a_sub;
 }
 
 /**
@@ -146,9 +132,12 @@ void mm(matrix a, matrix b, matrix result)
     
     // Do the multiplication
     for (i = 0; i < size; i++)
-        for (j = 0; j < size; j++)
-            for(k = 0; k < size; k++)
-                result.element[i][j] += a.element[i][k] * b.element[k][j];
+        for (j = 0; j < size; j++) {
+            float sum = 0;
+            for(k = 0; k < size; k++)            
+                sum += a.elements[i * a.width + k] * b.elements[k * b.width + j];
+            result.elements[i * result.width + j] = sum;
+        }
 }
 
 /**
@@ -161,7 +150,7 @@ __global__ void mm_kernel(matrix a, matrix b, matrix result, int size)
     int g_col = blockIdx.y * blockDim.y + threadIdx.y;
     int m, e;
 
-    if (i >= size || j >= size)
+    if (g_row >= size || g_col >= size)
         return;
 
     // block index
@@ -197,7 +186,7 @@ __global__ void mm_kernel(matrix a, matrix b, matrix result, int size)
         }
     }
 
-    result[g_row][g_col] = result_value;
+    result.elements[g_row * result.width + g_col] = result_value;
 }
 
 void print_matrix(matrix m)
@@ -208,7 +197,7 @@ void print_matrix(matrix m)
     {
         printf("row %4d: ", i);
         for (j = 0; j < size; j++)
-            printf("%6.2f  ", m.element[i][j]);
+            printf("%6.2f  ", m.elements[i * m.width + j]);
         printf("\n");
     }
 }
@@ -239,8 +228,8 @@ void work()
         fprintf(stderr, "Matrix multiplication on CPU took %1.2f seconds\n", ((float)(after - before))/1000000000);
 
     // Perform CUDA matrix  multiplication
-    dim3 block(32, 32);			// a block of 32 x 32 CUDA threads
-    dim = (size % 32 == 0) ? size / 32 : size / 32 + 1; 
+    dim3 block(BLOCK_SIZE, BLOCK_SIZE);			// a block of 32 x 32 CUDA threads
+    dim = (size % BLOCK_SIZE == 0) ? size / BLOCK_SIZE : size / BLOCK_SIZE + 1; 
     dim3 grid(dim, dim);	// a grid of CUDA thread blocks
     before = wall_clock_time();
     mm_kernel<<<grid, block>>>(a, b, result2, size);
@@ -257,7 +246,7 @@ void work()
     correct = 1;
     for (i = 0; correct && i < size; i++)
         for (j = 0; j < size; j++)
-            if (result1.element[i][j] != result2.element[i][j]) {
+            if (result1.elements[i * result1.width + j] != result2.elements[i * result2.width + j]) {
                 correct = 0;
                 break;
             }
