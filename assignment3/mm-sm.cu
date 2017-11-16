@@ -100,7 +100,7 @@ void init_matrix_zero(matrix m)
 * Get element of matrix m of (row, col) respect to the sub matrix that is corresponding
 *  to the block thread id (block_x, block_y)
 */
-__device__ get_element(matrix m, int block_x, int block_y, int row, int col, int size) {
+__device__ float get_element(matrix m, int block_x, int block_y, int row, int col, int size) {
     int i = block_x * BLOCK_SIZE + row;
     int j = block_y * BLOCK_SIZE + col;
     if (i >= size || j >= size)
@@ -166,7 +166,7 @@ __global__ void mm_kernel(matrix a, matrix b, matrix result, int size)
         __syncthreads();
     }
 
-    if (g_row <= size && g_col <= size)
+    if (g_row < size && g_col < size)
         result.element[g_row][g_col] = result_value;
 }
 
@@ -210,8 +210,8 @@ void work()
         fprintf(stderr, "Matrix multiplication on CPU took %1.2f seconds\n", ((float)(after - before))/1000000000);
 
     // Perform CUDA matrix  multiplication
-    dim3 block(32, 32);			// a block of 32 x 32 CUDA threads
-    dim = (size % 32 == 0) ? size / 32 : size / 32 + 1; 
+    dim3 block(BLOCK_SIZE, BLOCK_SIZE);			// a block of 32 x 32 CUDA threads
+    dim = (size % BLOCK_SIZE == 0) ? size / BLOCK_SIZE : size / BLOCK_SIZE + 1; 
     dim3 grid(dim, dim);	// a grid of CUDA thread blocks
     before = wall_clock_time();
     mm_kernel<<<grid, block>>>(a, b, result2, size);
