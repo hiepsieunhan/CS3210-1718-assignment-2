@@ -99,15 +99,10 @@ void init_matrix_zero(matrix m)
 /**
 * Get element  at row, col of sub matrix
 */
-__device__ float get_element(const matrix a, int row, int col) {
+__device__ float get_element(const matrix a, int row, int col, int block_x, int block_y) {
+    if (block_x * BLOCK_SIZE + row >= size || block_y * BLOCK_SIZE + col >= size) 
+        return 0;
     return a.elements[row * a.stride + col];
-}
-
-/**
-* Set element at row, col of sub matrix
-*/
-__device__ void set_element(const matrix a, int row, int col, float value) {
-    a.elements[row * a.stride + col] = value;
 }
 
 __device__ matrix get_sub_matrix(matrix a, int row, int col) {
@@ -150,9 +145,6 @@ __global__ void mm_kernel(matrix a, matrix b, matrix result, int size)
     int g_col = blockIdx.y * blockDim.y + threadIdx.y;
     int m, e;
 
-    if (g_row >= size || g_col >= size)
-        return;
-
     // block index
     int block_row = blockIdx.x;
     int block_col = blockIdx.y;
@@ -162,7 +154,7 @@ __global__ void mm_kernel(matrix a, matrix b, matrix result, int size)
     int row = threadIdx.x;
     int col = threadIdx.y;
 
-    int num_block = (a.width + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    int num_block = (a.width + BLOCK_SIZE - 1) / BLOCK_SIZE;
     for (m = 0; m < num_block; m++) {
         matrix a_sub = get_sub_matrix(a, block_row, m);
         matrix b_sub = get_sub_matrix(b, m, block_col);
@@ -171,8 +163,8 @@ __global__ void mm_kernel(matrix a, matrix b, matrix result, int size)
         __shared__ float a_s[BLOCK_SIZE][BLOCK_SIZE];
         __shared__ float b_s[BLOCK_SIZE][BLOCK_SIZE];
 
-        a_s[row][col] = get_element(a_sub, row, col);
-        b_s[row][col] = get_element(a_sub, row, col);
+        a_s[row][col] = get_element(a_sub, row, col, block_row, m);
+        b_s[row][col] = get_element(a_sub, row, col, m, block_col);
         // Synchronize to make sure the sub-matrices are loaded
         // before starting the computation
         __syncthreads();
@@ -180,13 +172,14 @@ __global__ void mm_kernel(matrix a, matrix b, matrix result, int size)
         // Multiply a_sub and b_sub together
         for (e = 0; e < BLOCK_SIZE; ++e) {
             result_value += a_s[row][e] * b_s[e][col];
-            // Synchronize to make sure that the preceding computation is done
-            // before loading two new sub-matrices of A and B in the next iteration
-            __syncthreads();
         }
+        // Synchronize to make sure that the preceding computation is done
+        // before loading two new sub-matrices of A and B in the next iteration
+        __syncthreads();
     }
 
-    result.elements[g_row * result.width + g_col] = result_value;
+    if (g_row <= size && g_col <= size)
+        result.elements[g_row * result.width + g_col] = result_value;
 }
 
 void print_matrix(matrix m)

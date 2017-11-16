@@ -134,13 +134,13 @@ __global__ void mm_kernel(matrix a, matrix b, matrix result, int size)
     if (i >= size || j >= size)
         return;
 
-// Reduce number of access to global memory of result matrix
-float sum = 0;
+    // Reduce number of access to global memory of result matrix
+    float sum = 0;
 
-for(k = 0; k < size; k++)
-    sum += a.element[i][k] * b.element[k][j];
+    for(k = 0; k < size; k++)
+        sum += a.element[i][k] * b.element[k][j];
 
-result.element[i][j] = sum;
+    result.element[i][j] = sum;
 }
 
 void print_matrix(matrix m)
