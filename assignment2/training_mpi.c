@@ -27,8 +27,8 @@ typedef struct {
 
 // This method produce random position in the field
 void get_random_position(int* x) {
-	x[0] = (rand() % (FIELD_WIDTH + 1));
-	x[1] = (rand() % (FIELD_HEIGHT + 1));
+	x[0] = (rand() % (FIELD_WIDTH));
+	x[1] = (rand() % (FIELD_HEIGHT));
 }
 
 // This method compare 2 position and return true if they are the same
