@@ -537,7 +537,7 @@ int main(int argc, char *argv[])
     int player_position[2] = {0, 0};
     int player_position_buf[3] = {0, 0, 0};
     int attributes[3] = {0, 0, 0};
-    int* player_info;
+    int* player_info = malloc_array(7);
 
     int pre_ball_position[2] = {0, 0};
     int pre_player_position[2] = {0, 0};
@@ -568,7 +568,7 @@ int main(int argc, char *argv[])
         players_position_buf = malloc_2d_array(TEAM_PLAYER * 2 + 1, 2);
         ball_challenges = malloc_2d_array(TEAM_PLAYER * 2 + 1, 2);
         if (rank == 0) {
-            all_gathered_players_position = malloc_2d_array(NUM_FIELD, TEAM_PLAYER * 4);
+            // all_gathered_players_position = malloc_2d_array(NUM_FIELD, TEAM_PLAYER * 4);
         }
     } else if (is_player_rank(rank)) {
         // Set attributes to this players
@@ -578,7 +578,6 @@ int main(int argc, char *argv[])
     // init buffer for collecting information after each round
     if (rank == 0 || is_player_rank(rank)) {
         MPI_Comm_split(MPI_COMM_WORLD, REPORT_COMM, rank, &report_comm);
-        player_info = malloc_array(7);
         if (rank == 0)
             players_info = malloc_2d_array(TEAM_PLAYER * 2 + 1, 7);
     }
