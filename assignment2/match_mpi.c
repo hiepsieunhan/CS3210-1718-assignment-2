@@ -1,9 +1,7 @@
 /**
- ** CS3210 - AY201718 - Assignment 2: Football match parallel using MPI
-**/
-
-/**
-* ------------NOTE------------
+* CS3210 - AY201718 - Assignment 2: Football match parallel using MPI
+*
+* ================================ NOTE ================================
 * Communicator ids:
 * 0 -> 11: Communicator to each sub field
 * 12 : Communicator among all sub fields
@@ -13,6 +11,7 @@
 * 0 -> 11: Field processes.
 * 12 -> 22: Team A players
 * 23 -> 33: Team B players
+* ======================================================================
 **/
 
 
@@ -262,6 +261,44 @@ void reset_positions(int rank, int* ball_position, int* player_position) {
 }
 
 /**
+* Make player run forward the ball direction randomly 
+*/
+void player_follow_ball(int* position, int* ball_position, int* attrs) {
+	int dis_x = ball_position[0] - position[0];
+    int dis_y = ball_position[1] - position[1];
+    int max_run = min(MAX_RUN, attrs[0]);
+	if (abs(dis_x) + abs(dis_y) <= max_run) {
+		position[0] = ball_position[0];
+		position[1] = ball_position[1];
+		return;
+	}
+	int max_step_x = min(max_run, abs(dis_x));
+	int max_step_y = min(max_run, abs(dis_y));
+
+	int step_x = rand() % (max_step_x + 1);
+	int step_y = max_run - step_x;
+	while (step_y > max_step_y) {
+		step_y--;
+		step_x++;
+	}
+	if (dis_x != 0) {
+		position[0] += step_x * dis_x / abs(dis_x);
+	}
+	if (dis_y != 0) {
+		position[1] += step_y * dis_y / abs(dis_y);
+	}
+}
+
+/**
+* Get player new position, depend on stretagy
+* TODO: implement this method
+*/
+void get_player_new_position(int rank, int* position, int* ball_position, int* attrs) {
+    player_follow_ball(position, ball_position, attrs);
+}
+
+
+/**
 * Collect players position for all fields
 */
 void collect_players_position(
@@ -286,7 +323,7 @@ void collect_players_position(
 
     if (is_field_rank(rank)) {
         int i, size;
-        MPI_Comm_size(MPI_COMM_WORLD, &size);
+        MPI_Comm_size(*field_comm, &size);
         clear_players_position(players_position);
         for (i = 0; i < size - 1; i++) {
             int player_id = players_position_buf[i][2];
@@ -303,6 +340,61 @@ void collect_players_position(
     MPI_Barrier(MPI_COMM_WORLD);
 }
 
+/**
+* Gather the ball challenge. Note that this code handle both players and field
+*/
+void gather_ball_challenge(
+    MPI_Comm* field_comm, int rank, int* attrs,
+    int* ball_challenge, int** ball_challenges, int* winner
+) {
+    bool is_player = is_player_rank(rank);
+    int field_id = get_sub_field_index(ball_challenge);
+    if (is_player) {
+        MPI_Comm_split(MPI_COMM_WORLD, field_id, rank, field_comm);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    if (is_player) {
+        ball_challenge[0] = rank;
+        ball_challenge[1] = attrs[1] * (rand() % 10 + 1);
+        MPI_Gather(ball_challenge, 2, MPI_INT, NULL, 2, MPI_INT, 0, *field_comm); 
+    } else {
+        MPI_Gather(ball_challenge, 2, MPI_INT, &ball_challenges[0][0], 2, MPI_INT, 0, *field_comm); 
+    }
+
+    *winner = -1;
+
+    if (!is_player) {
+        int i, size;
+        int max_challenge = -1;
+        int max_weight = -1; // weight is for tie break using random weight
+        MPI_Comm_size(*field_comm, &size);
+        for (i = 1; i < size ; i++) {
+            int player_id = ball_challenges[i][0];
+            int challenge = ball_challenges[i][1];
+            int weight = rand();
+            if (challenge > max_challenge || (challenge == max_challenge && weight > max_weight)) {
+                *winner = player_id;
+                max_weight = weight;
+                max_challenge = challenge;
+            }
+        }
+    }
+
+    MPI_Barrier(*field_comm);
+    
+    if (is_player) {
+        MPI_Comm_free(field_comm);
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+}
+
+void broadcast_ball_winner(int* ball_position, int* winner) {
+    int bcast_rank = get_sub_field_index(ball_position); // rank of the field has ball
+    MPI_Bcast(winner, 1, MPI_INT, bcast_rank, MPI_COMM_WORLD);
+}
+
 int main(int argc, char *argv[])
 {
     int numtasks, rank, tag = 0;
@@ -310,8 +402,9 @@ int main(int argc, char *argv[])
     // TODO: create comm of all players with sub field 0 to report each round....
     MPI_Comm all_field_comm; // Communicator for all sub fields
     MPI_Comm field_comm; // for other players to communicate with this sub field
-    int** players_position = NULL;
+    int** players_position = malloc_2d_array(TEAM_PLAYER * 2, 2);
     int** players_position_buf = NULL;
+    int** ball_challenges = NULL;
     int** all_gathered_players_position = NULL; // For process 0 only
 
     int ball_position[2] = {0, 0};
@@ -319,8 +412,13 @@ int main(int argc, char *argv[])
     int player_position_buf[3] = {0, 0, 0};
     int attributes[3] = {0, 0, 0};
 
+    int pre_ball_position[2] = {0, 0};
+    int pre_player_position[2] = {0, 0};
+    int ball_challenge[2] = {0, 0}; // First value is the process index, second value is the ball challenge
+
     int score[2] = {0, 0}; // Score of the match, initialy is 0 - 0
     int is_just_scored = 0;  // To check after each round is there any just scored.
+    int ball_winner = -1; // Ball winner player process id in each round
 
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
@@ -340,8 +438,8 @@ int main(int argc, char *argv[])
         // Setup comm for sub field
         MPI_Comm_split(MPI_COMM_WORLD, 12, rank, &all_field_comm);
         MPI_Comm_split(MPI_COMM_WORLD, rank, rank, &field_comm);
-        players_position = malloc_2d_array(TEAM_PLAYER * 2, 2);
         players_position_buf = malloc_2d_array(TEAM_PLAYER * 2 + 1, 2);
+        ball_challenges = malloc_2d_array(TEAM_PLAYER * 2 + 1, 2);
         if (rank == 0) {
             all_gathered_players_position = malloc_2d_array(NUM_FIELD, TEAM_PLAYER * 4);
         }
@@ -369,6 +467,37 @@ int main(int argc, char *argv[])
             );
         }
         round_cnt++;
+
+        // TODO: get all players position to field 0 and bcast to all players.
+
+        // Broadcast ball position from field 0 to all other processes
+        MPI_Bcast(ball_position, 2, MPI_INT, 0, MPI_COMM_WORLD);
+        assign_position(pre_ball_position, ball_position);
+
+        // Player run to new posiiton
+        if (is_player_rank(rank)) {
+            assign_position(pre_player_position, player_position);
+            get_player_new_position(rank, player_position, ball_position, attributes);
+        }
+
+        collect_players_position(
+            &field_comm, rank, player_position, player_position_buf,
+            players_position, players_position_buf
+        );
+
+        // If the process is the player who reached the ball, or the field that the ball is located at
+        if (
+            (is_player_rank(rank) && is_same(ball_position, player_position))
+            || (is_field_rank(rank) && get_sub_field_index(ball_position) == rank)
+        ) {
+            gather_ball_challenge(&field_comm, rank, attributes, ball_challenge, ball_challenges, &ball_winner);
+        }
+
+        broadcast_ball_winner(ball_position, &ball_winner);
+
+        // Kick ball -> Bcast new ball location and score if necessary.
+
+        MPI_Barrier(MPI_COMM_WORLD);
     }
 
     MPI_Finalize();
