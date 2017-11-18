@@ -107,19 +107,6 @@ int* malloc_array(int size) {
 }
 
 /**
-* Init report communication ranks
-*/
-int* get_report_comm_ranks() {
-    int i;
-    int* ranks = malloc_array(2 * NUM_FIELD + 1);
-    ranks[0] = 0;
-    for (i = 0; i < 2 * TEAM_PLAYER; i++) {
-        ranks[i + 1] = i + NUM_FIELD;
-    }
-    return ranks;
-}
-
-/**
 * Init field communcication ranks
 */
 int* get_all_field_comm_ranks() {
@@ -382,14 +369,17 @@ void collect_players_position(
     int* player_position, int* player_position_buf,
     int** players_position, int** players_position_buf
 ) {
+    bool is_player = is_player_rank(rank);
     int field_id = get_sub_field_index(player_position);
-    if (is_player_rank(rank)) {
+    if (is_player) {
         MPI_Comm_split(MPI_COMM_WORLD, field_id, rank, field_comm);
+    } else {
+        MPI_Comm_split(MPI_COMM_WORLD, rank, rank, field_comm);
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
 
-    if (is_field_rank(rank)) {
+    if (!is_player) {
         MPI_Gather(player_position_buf, 3, MPI_INT, &players_position_buf[0][0], 3, MPI_INT, 0, *field_comm);
     } else {
         assign_position(player_position_buf, player_position);
@@ -397,7 +387,7 @@ void collect_players_position(
         MPI_Gather(player_position_buf, 3, MPI_INT, NULL, 3, MPI_INT, 0, *field_comm);
     }
 
-    if (is_field_rank(rank)) {
+    if (!is_player) {
         int i, size;
         MPI_Comm_size(*field_comm, &size);
         clear_players_position(players_position);
@@ -409,9 +399,7 @@ void collect_players_position(
 
     MPI_Barrier(*field_comm);
 
-    if (is_player_rank(rank)) {
-        MPI_Comm_free(field_comm);
-    }
+    MPI_Comm_free(field_comm);
 
     MPI_Barrier(MPI_COMM_WORLD);
 }
@@ -426,7 +414,10 @@ void gather_ball_challenge(
     bool is_player = is_player_rank(rank);
     int field_id = get_sub_field_index(ball_challenge);
     if (is_player) {
-        MPI_Comm_split(MPI_COMM_WORLD, field_id, rank, field_comm);
+        MPI_Comm_split(MPI_COMM_WORLD, 0, rank, field_comm);
+    } else {
+        int color = rank == field_id ? 0 : MPI_UNDEFINED;
+        MPI_Comm_split(MPI_COMM_WORLD, color, rank, field_comm);
     }
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -440,7 +431,7 @@ void gather_ball_challenge(
 
     *winner = -1;
 
-    if (!is_player) {
+    if (rank == field_id) {
         int i, size;
         int max_challenge = -1;
         int max_weight = -1; // weight is for tie break using random weight
@@ -459,9 +450,7 @@ void gather_ball_challenge(
 
     MPI_Barrier(*field_comm);
     
-    if (is_player) {
-        MPI_Comm_free(field_comm);
-    }
+    MPI_Comm_free(field_comm);
 
     MPI_Barrier(MPI_COMM_WORLD);
 }
@@ -507,7 +496,7 @@ void broadcast_score_check(int rank, int winner, int* is_just_scored, int* score
 * Gather player info from process field 0
 */
 void gather_players_info(
-    int round_cnt, MPI_Comm* report_comm, int rank, int winner, int ball_challenge,
+    int round_cnt, MPI_Comm* field_comm, int rank, int winner, int ball_challenge,
     int* pre_ball_position, int* player_position, int* pre_player_position,
     int* player_info, int** players_info, int* score
 ) {
@@ -519,8 +508,12 @@ void gather_players_info(
         player_info[4] = (int)is_same(player_position, pre_ball_position);
         player_info[5] = (int)(winner == rank);
         player_info[6] = ball_challenge;
+        MPI_Comm_split(MPI_COMM_WORLD, 0, rank, field_comm);
+    } else {
+        int color = rank == 0 ? 0 : MPI_UNDEFINED;
+        MPI_Comm_split(MPI_COMM_WORLD, color, rank, field_comm);
     }
-    MPI_Gather(player_info, 7, MPI_INT, &players_info[0][0], 7, MPI_INT, 0, *report_comm);
+    MPI_Gather(player_info, 7, MPI_INT, &players_info[0][0], 7, MPI_INT, 0, *field_comm);
 
     if (rank == 0) {
         int i;
@@ -548,10 +541,9 @@ int main(int argc, char *argv[])
 {
     int numtasks, rank;
 
-    MPI_Group orig_group, all_field_group, report_group;
+    MPI_Group orig_group, all_field_group;
     MPI_Comm all_field_comm; // Communicator for all sub fields
     MPI_Comm field_comm; // for other players to communicate with this sub field
-    MPI_Comm report_comm; // to report data from all players 
     int** players_position = malloc_2d_array(TEAM_PLAYER * 2, 2);
     int** players_position_buf = NULL;
     int** ball_challenges = NULL;
@@ -589,7 +581,6 @@ int main(int argc, char *argv[])
     MPI_Comm_group(MPI_COMM_WORLD, &orig_group);
 
     if (is_field_rank(rank)) {
-        MPI_Comm_split(MPI_COMM_WORLD, rank, rank, &field_comm);
         // Setup comm for sub field
         MPI_Group_incl(orig_group, NUM_FIELD, get_all_field_comm_ranks(), &all_field_group);
         MPI_Comm_create(MPI_COMM_WORLD, all_field_group, &all_field_comm);
@@ -597,19 +588,12 @@ int main(int argc, char *argv[])
         players_position_buf = malloc_2d_array(TEAM_PLAYER * 2 + 1, 2);
         ball_challenges = malloc_2d_array(TEAM_PLAYER * 2 + 1, 2);
         if (rank == 0) {
+            players_info = malloc_2d_array(NUM_PROC, 7);
             // all_gathered_players_position = malloc_2d_array(NUM_FIELD, TEAM_PLAYER * 4);
         }
     } else if (is_player_rank(rank)) {
         // Set attributes to this players
         set_attributes(rank, attributes);
-    }
-
-    // init buffer for collecting information after each round
-    if (rank == 0 || is_player_rank(rank)) {
-        MPI_Group_incl(orig_group, TEAM_PLAYER * 2 + 1, get_report_comm_ranks(), &report_group);
-        MPI_Comm_create(MPI_COMM_WORLD, report_group, &report_comm);
-        if (rank == 0)
-            players_info = malloc_2d_array(TEAM_PLAYER * 2 + 1, 7);
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
@@ -668,7 +652,7 @@ int main(int argc, char *argv[])
 
         if (rank == 0 || is_player) {
             gather_players_info(
-                round_cnt, &report_comm, rank, ball_winner, ball_challenge[1], pre_ball_position,
+                round_cnt, &field_comm, rank, ball_winner, ball_challenge[1], pre_ball_position,
                 player_position, pre_player_position, player_info, players_info, score
             );
         }

@@ -30,15 +30,10 @@ int main(int argc, char *argv[])
 
     /* Divide tasks into two distinct groups based upon rank */
     if (rank < NPROCS/2) {
-        MPI_Group_incl(orig_group, NPROCS/2, ranks1, &new_group);
-        MPI_Comm_create(MPI_COMM_WORLD, new_group, &new_comm);
-
         MPI_Comm_split(MPI_COMM_WORLD, rank, rank, &field_comm);
+    } else {
+        MPI_Comm_split(MPI_COMM_WORLD, MPI_UNDEFINED, rank, &field_comm);
     }
-    if (rank == 0 || rank >= NPROCS/2) {
-        MPI_Group_incl(orig_group, NPROCS/2 + 1, ranks2, &other_group);
-        MPI_Comm_create(MPI_COMM_WORLD, new_group, &other_comm);
-    }  
 
     /* Create new new communicator and then perform collective communications */
     MPI_Finalize();
