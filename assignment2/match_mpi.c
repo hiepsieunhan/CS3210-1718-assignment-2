@@ -36,7 +36,6 @@ const int NUM_PROC = 34;
 const int MAX_RUN = 10;
 const int TOTAL_ROUND = 2700;
 const int GOAL_Y_POSITION[2] = {43, 51};
-const int REPORT_COMM = 40;
 
 
 /**
@@ -105,6 +104,30 @@ int** malloc_2d_array(int length, int size) {
 int* malloc_array(int size) {
     int* array = (int*)malloc(sizeof(int) * size);
     return array;
+}
+
+/**
+* Init report communication ranks
+*/
+int* get_report_comm_ranks() {
+    int i;
+    int* ranks = malloc_array(2 * NUM_FIELD + 1);
+    ranks[0] = 0;
+    for (i = 0; i < 2 * TEAM_PLAYER; i++) {
+        ranks[i + 1] = i + NUM_FIELD;
+    }
+    return ranks;
+}
+
+/**
+* Init field communcication ranks
+*/
+int* get_all_field_comm_ranks() {
+    int i;
+    int* ranks = malloc_array(NUM_FIELD);
+    for (i = 0; i < NUM_FIELD; i++) {
+        ranks[i] = i;
+    }
 }
 
 /**
@@ -524,9 +547,11 @@ int main(int argc, char *argv[])
 {
     int numtasks, rank;
 
+    MPI_Group orig_comm, all_field_group, report_group;
     MPI_Comm all_field_comm; // Communicator for all sub fields
     MPI_Comm field_comm; // for other players to communicate with this sub field
     MPI_Comm report_comm; // to report data from all players 
+    int* report_comm_ranks = malloc_array(23);
     int** players_position = malloc_2d_array(TEAM_PLAYER * 2, 2);
     int** players_position_buf = NULL;
     int** ball_challenges = NULL;
@@ -561,10 +586,14 @@ int main(int argc, char *argv[])
 
     // Initialization
 
+    MPI_Comm_group(MPI_COMM_WORLD, &orig_comm);
+
     if (is_field_rank(rank)) {
-        // Setup comm for sub field
-        MPI_Comm_split(MPI_COMM_WORLD, 12, rank, &all_field_comm);
         MPI_Comm_split(MPI_COMM_WORLD, rank, rank, &field_comm);
+        // Setup comm for sub field
+        MPI_Group_incl(orig_group, NUM_FIELD, get_all_field_comm_ranks(), &all_field_group);
+        MPI_Comm_create(MPI_COMM_WORLD, all_field_group, &all_field_comm);
+
         players_position_buf = malloc_2d_array(TEAM_PLAYER * 2 + 1, 2);
         ball_challenges = malloc_2d_array(TEAM_PLAYER * 2 + 1, 2);
         if (rank == 0) {
@@ -577,7 +606,8 @@ int main(int argc, char *argv[])
 
     // init buffer for collecting information after each round
     if (rank == 0 || is_player_rank(rank)) {
-        MPI_Comm_split(MPI_COMM_WORLD, REPORT_COMM, rank, &report_comm);
+        MPI_Group_incl(orig_group, TEAM_PLAYER * 2 + 1, get_report_comm_ranks(), &report_group);
+        MPI_Comm_create(MPI_COMM_WORLD, report_group, &report_comm);
         if (rank == 0)
             players_info = malloc_2d_array(TEAM_PLAYER * 2 + 1, 7);
     }
