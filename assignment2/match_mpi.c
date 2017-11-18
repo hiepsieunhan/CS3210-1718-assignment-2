@@ -36,6 +36,7 @@ const int NUM_PROC = NUM_FIELD + TEAM_PLAYER * 2;
 const int MAX_RUN = 10;
 const int TOTAL_ROUND = 2700;
 const int GOAL_Y_POSITION[2] = {43, 51};
+const int REPORT_COMM = 40;
 
 
 /**
@@ -365,7 +366,7 @@ void collect_players_position(
     MPI_Barrier(MPI_COMM_WORLD);
 
     if (is_field_rank(rank)) {
-        MPI_Gather(player_position_buf, 3, MPI_INT, &players_position_buf[0][0], 3, MPI_INT, 0, *field_comm);    
+        MPI_Gather(player_position_buf, 3, MPI_INT, &players_position_buf[0][0], 3, MPI_INT, 0, *field_comm);
     } else {
         assign_position(player_position_buf, player_position);
         player_position[2] = rank;
@@ -462,22 +463,81 @@ void kick_ball_and_broadcast_ball_position(int rank, int winner, int* attrs, int
     MPI_Bcast(ball_position, 2, MPI_INT, winner, MPI_COMM_WORLD);
 }
 
+/**
+* Broadcast whether the ball winner just scored in this round of not
+*/
+void broadcast_score_check(int rank, int winner, int* is_just_scored, int* score) {
+    if (winner < 0)
+        return;
+    MPI_Bcast(is_just_scored, 1, MPI_INT, winner, MPI_COMM_WORLD);
+    // Update score at process 0
+    if (rank == 0 && is_just_scored) {
+        if (is_team_A_player_rank(winner))
+            score[0]++;
+        else
+            score[1]++;
+    }
+}
+
+/**
+* Gather player info from process field 0
+*/
+void gather_players_info(
+    int round_cnt, MPI_Comm* report_comm, int rank, int winner, int ball_challenge,
+    int* pre_ball_position, int* player_position, int* pre_player_position,
+    int* player_info, int** players_info, int* score
+) {
+    if (is_player_rank(rank)) {
+        player_info[0] = pre_player_position[0];
+        player_info[1] = pre_player_position[1];
+        player_info[2] = player_position[0];
+        player_info[3] = player_position[1];
+        player_info[4] = (int)is_same(player_position, pre_ball_position);
+        player_info[5] = (int)(winner == rank);
+        player_info[6] = ball_challenge;
+    }
+    MPI_Gather(player_info, 7, MPI_INT, &players_info[0][0], 7, MPI_INT, 0, *report_comm);
+
+    if (rank == 0) {
+        int i;
+        printf("Round %d\n", round_cnt);
+        printf("Ball position: %d %d\n", pre_ball_position[0], pre_ball_position[1]);
+        for (i = 1; i <= 2 * TEAM_PLAYER; i++) {
+            if (i == 1)
+                printf("Team A player info:\n");
+            if (i == TEAM_PLAYER + 1)
+                printf("Team B player info:\n");
+            printf(
+                "%d %d %d %d %d %d %d\n",
+                players_info[i][0], players_info[i][1],
+                players_info[i][2], players_info[i][3],
+                players_info[i][4], players_info[i][5],
+                players_info[i][7]
+            );
+        }
+        printf("Score: %d %d\n", score[0], score[1]);
+        printf("--------------------------");
+    }
+}
+
 int main(int argc, char *argv[])
 {
     int numtasks, rank, tag = 0;
 
-    // TODO: create comm of all players with sub field 0 to report each round....
     MPI_Comm all_field_comm; // Communicator for all sub fields
     MPI_Comm field_comm; // for other players to communicate with this sub field
+    MPI_Comm report_comm; // to report data from all players 
     int** players_position = malloc_2d_array(TEAM_PLAYER * 2, 2);
     int** players_position_buf = NULL;
     int** ball_challenges = NULL;
     int** all_gathered_players_position = NULL; // For process 0 only
+    int** players_info = NULL;
 
     int ball_position[2] = {0, 0};
     int player_position[2] = {0, 0};
     int player_position_buf[3] = {0, 0, 0};
     int attributes[3] = {0, 0, 0};
+    int* player_info;
 
     int pre_ball_position[2] = {0, 0};
     int pre_player_position[2] = {0, 0};
@@ -515,11 +575,20 @@ int main(int argc, char *argv[])
         set_attributes(rank, attributes);
     }
 
+    // init buffer for collecting information after each round
+    if (rank == 0 || is_player_rank(rank)) {
+        MPI_Comm_split(MPI_COMM_WORLD, REPORT_COMM, rank, &report_comm);
+        player_info = malloc_array(7);
+        if (rank == 0)
+            players_info = malloc_2d_array(TEAM_PLAYER * 2 + 1, 7);
+    }
+
     MPI_Barrier(MPI_COMM_WORLD);
 
     // Start the match
 
     int round_cnt = 0;
+    bool is_player = is_player_rank(rank);
     while (round_cnt < TOTAL_ROUND * 2) {
         // Move from 1st half to 2nd half.
         if (round_cnt == TOTAL_ROUND) {
@@ -534,6 +603,7 @@ int main(int argc, char *argv[])
             );
         }
         round_cnt++;
+        is_just_scored = false;
 
         // TODO: get all players position to field 0 and bcast to all players.
 
@@ -542,7 +612,7 @@ int main(int argc, char *argv[])
         assign_position(pre_ball_position, ball_position);
 
         // Player run to new posiiton
-        if (is_player_rank(rank)) {
+        if (is_player) {
             assign_position(pre_player_position, player_position);
             get_player_new_position(rank, player_position, ball_position, attributes);
         }
@@ -552,9 +622,10 @@ int main(int argc, char *argv[])
             players_position, players_position_buf
         );
 
+        ball_challenge[1] = -1;
         // If the process is the player who reached the ball, or the field that the ball is located at
         if (
-            (is_player_rank(rank) && is_same(ball_position, player_position))
+            (is_player && is_same(ball_position, player_position))
             || (is_field_rank(rank) && get_sub_field_index(ball_position) == rank)
         ) {
             gather_ball_challenge(&field_comm, rank, attributes, ball_challenge, ball_challenges, &ball_winner);
@@ -563,6 +634,15 @@ int main(int argc, char *argv[])
         broadcast_ball_winner(ball_position, &ball_winner);
 
         kick_ball_and_broadcast_ball_position(rank, ball_winner, attributes, ball_position, &is_just_scored);
+
+        broadcast_score_check(rank, ball_winner, &is_just_scored, score);
+
+        if (rank == 0 || is_player) {
+            gather_players_info(
+                round_cnt, &report_comm, rank, ball_winner, ball_challenge[1], pre_ball_position,
+                player_position, pre_player_position, player_info, players_info, score
+            );
+        }
 
         MPI_Barrier(MPI_COMM_WORLD);
     }
