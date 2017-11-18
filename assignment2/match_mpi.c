@@ -174,6 +174,17 @@ int get_team_B_player_index(int rank) {
 }
 
 /**
+* Get target goal of a player, depend on the team and the half
+* true is left goal, false is right goal
+*/
+bool get_target_goal(int rank) {
+    return (
+        (is_team_A_player_rank(rank) && current_half ==  2)
+        || (is_team_B_player_rank(rank) && current_half == 1)
+    );
+}
+
+/**
 * Assign the l_pos values with r_pos values
 */
 void assign_position(int* l_pos, int* r_pos) {
@@ -215,7 +226,7 @@ int get_sub_field_index(int* position) {
 * can score from a particular position or not.
 * target_goal is true if the target goal is on the left, otherwise it is the right one.
 */
-bool can_player_score_from_position(int kick_power, int* position, bool target_goal) {
+bool can_player_score_from_position(int* position, bool target_goal, int kick_power) {
     int target_goal_x = target_goal ? 0 : FIELD_WIDTH - 1;
     int goal[2] = {0, 0};
     int i;
@@ -261,18 +272,18 @@ void reset_positions(int rank, int* ball_position, int* player_position) {
 }
 
 /**
-* Make player run forward the ball direction randomly 
+* Forward a player/ball from a position to target_position
+* if used to run player, max_run is player speed
+* if used to kick the ball, max_run is 2 * player kick power
 */
-void player_follow_ball(int* position, int* ball_position, int* attrs) {
-	int dis_x = ball_position[0] - position[0];
-    int dis_y = ball_position[1] - position[1];
-    int max_run = min(MAX_RUN, attrs[0]);
-	if (abs(dis_x) + abs(dis_y) <= max_run) {
-		position[0] = ball_position[0];
-		position[1] = ball_position[1];
-		return;
-	}
-	int max_step_x = min(max_run, abs(dis_x));
+void forward_position(int* cur_position, int* target_position, int max_run) {
+    if (get_distance(cur_position, target_position) <= max_run) {
+        assign_position(cur_position, target_position);
+        return;
+    }
+    int dis_x = target_position[0] - cur_position[0];
+    int dis_y = target_position[1] - cur_position[1];
+    int max_step_x = min(max_run, abs(dis_x));
 	int max_step_y = min(max_run, abs(dis_y));
 
 	int step_x = rand() % (max_step_x + 1);
@@ -282,11 +293,33 @@ void player_follow_ball(int* position, int* ball_position, int* attrs) {
 		step_x++;
 	}
 	if (dis_x != 0) {
-		position[0] += step_x * dis_x / abs(dis_x);
+		cur_position[0] += step_x * dis_x / abs(dis_x);
 	}
 	if (dis_y != 0) {
-		position[1] += step_y * dis_y / abs(dis_y);
+		cur_position[1] += step_y * dis_y / abs(dis_y);
 	}
+}
+
+/**
+* Make player run forward the ball direction randomly 
+*/
+void player_follow_ball(int* position, int* ball_position, int* attrs) {
+    int max_run = min(MAX_RUN, attrs[0]);
+	forward_position(position, ball_position, max_run);
+}
+
+/**
+* Kick the ball toward the goal - To simplify, just target the ball into 
+*   center of the goal
+*/
+void kick_ball_toward_goal(int* position, bool target_goal, int kick_power) {
+    int* goal_center = malloc_array(2);
+
+    goal_center[0] = target_goal ? 0 : FIELD_WIDTH - 1;
+    goal_center[1] = (GOAL_Y_POSITION[0] + GOAL_Y_POSITION[1]) / 2;
+    forward_position(position, goal_center, 2 * kick_power);
+
+    free(goal_center);
 }
 
 /**
@@ -297,6 +330,24 @@ void get_player_new_position(int rank, int* position, int* ball_position, int* a
     player_follow_ball(position, ball_position, attrs);
 }
 
+/**
+* Player decide to kick the ball
+*/
+void player_kick_the_ball(int rank, int* ball_position, int* attrs, int* is_just_scored) {
+    if (!is_player_rank(rank)) {
+        return;
+    }
+    *is_just_scored = 0;
+    int kick_power = attrs[2];
+    bool target_goal = get_target_goal(rank);
+    if (can_player_score_from_position(ball_position, target_goal, kick_power)) {
+        // If this player can score, just score, and we dont need to care about new ball position
+        *is_just_scored = 1;
+        return;
+    }
+    // TODO: decide position using strategy, For now just kick the ball forward the goal
+    kick_ball_toward_goal(ball_position, target_goal, kick_power);
+}
 
 /**
 * Collect players position for all fields
@@ -390,9 +441,25 @@ void gather_ball_challenge(
     MPI_Barrier(MPI_COMM_WORLD);
 }
 
+/**
+* Broadcast the ball winner from the field contains the ball to all processes
+*/
 void broadcast_ball_winner(int* ball_position, int* winner) {
     int bcast_rank = get_sub_field_index(ball_position); // rank of the field has ball
     MPI_Bcast(winner, 1, MPI_INT, bcast_rank, MPI_COMM_WORLD);
+}
+
+/**
+* The winner kick the ball and bcast new ball position to all other processes
+*/
+void kick_ball_and_broadcast_ball_position(int rank, int winner, int* attrs, int* ball_position, int* is_just_scored) {
+    if (!is_player_rank(winner)) {
+        return;
+    }
+    if (winner == rank) {
+        player_kick_the_ball(rank, ball_position, attrs, is_just_scored);
+    }
+    MPI_Bcast(ball_position, 2, MPI_INT, winner, MPI_COMM_WORLD);
 }
 
 int main(int argc, char *argv[])
@@ -495,7 +562,7 @@ int main(int argc, char *argv[])
 
         broadcast_ball_winner(ball_position, &ball_winner);
 
-        // Kick ball -> Bcast new ball location and score if necessary.
+        kick_ball_and_broadcast_ball_position(rank, ball_winner, attributes, ball_position, &is_just_scored);
 
         MPI_Barrier(MPI_COMM_WORLD);
     }
