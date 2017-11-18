@@ -552,7 +552,6 @@ int main(int argc, char *argv[])
     MPI_Comm all_field_comm; // Communicator for all sub fields
     MPI_Comm field_comm; // for other players to communicate with this sub field
     MPI_Comm report_comm; // to report data from all players 
-    int* report_comm_ranks = malloc_array(23);
     int** players_position = malloc_2d_array(TEAM_PLAYER * 2, 2);
     int** players_position_buf = NULL;
     int** ball_challenges = NULL;
