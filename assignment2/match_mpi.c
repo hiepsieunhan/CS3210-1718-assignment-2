@@ -29,10 +29,10 @@ const int TEAM_PLAYER = 11;
 const int FIELD_WIDTH = 128;
 const int FIELD_HEIGHT = 96;
 const int SUB_FIELD_SIZE = 32;
-const int SUB_FIELD_COUNT_X = FIELD_WIDTH / SUB_FIELD_SIZE;
-const int SUB_FIELD_COUNT_Y = FIELD_HEIGHT / SUB_FIELD_SIZE;
-const int NUM_FIELD = SUB_FIELD_COUNT_Y * SUB_FIELD_COUNT_X;
-const int NUM_PROC = NUM_FIELD + TEAM_PLAYER * 2;
+const int SUB_FIELD_COUNT_X = 4;
+const int SUB_FIELD_COUNT_Y = 3;
+const int NUM_FIELD = 12;
+const int NUM_PROC = 34;
 const int MAX_RUN = 10;
 const int TOTAL_ROUND = 2700;
 const int GOAL_Y_POSITION[2] = {43, 51};
@@ -231,7 +231,7 @@ bool can_player_score_from_position(int* position, bool target_goal, int kick_po
     int target_goal_x = target_goal ? 0 : FIELD_WIDTH - 1;
     int goal[2] = {0, 0};
     int i;
-    for (int i = GOAL_Y_POSITION[0]; i <= GOAL_Y_POSITION[1]; i++) {
+    for (i = GOAL_Y_POSITION[0]; i <= GOAL_Y_POSITION[1]; i++) {
         goal[0] = target_goal_x;
         goal[1] = i;
         if (get_distance(position, goal) < kick_power * 2)
@@ -522,7 +522,7 @@ void gather_players_info(
 
 int main(int argc, char *argv[])
 {
-    int numtasks, rank, tag = 0;
+    int numtasks, rank;
 
     MPI_Comm all_field_comm; // Communicator for all sub fields
     MPI_Comm field_comm; // for other players to communicate with this sub field
@@ -530,7 +530,7 @@ int main(int argc, char *argv[])
     int** players_position = malloc_2d_array(TEAM_PLAYER * 2, 2);
     int** players_position_buf = NULL;
     int** ball_challenges = NULL;
-    int** all_gathered_players_position = NULL; // For process 0 only
+    // int** all_gathered_players_position = NULL; // For process 0 only
     int** players_info = NULL;
 
     int ball_position[2] = {0, 0};
