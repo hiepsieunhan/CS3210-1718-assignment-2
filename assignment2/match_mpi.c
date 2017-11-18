@@ -128,6 +128,7 @@ int* get_all_field_comm_ranks() {
     for (i = 0; i < NUM_FIELD; i++) {
         ranks[i] = i;
     }
+    return ranks;
 }
 
 /**
@@ -547,7 +548,7 @@ int main(int argc, char *argv[])
 {
     int numtasks, rank;
 
-    MPI_Group orig_comm, all_field_group, report_group;
+    MPI_Group orig_group, all_field_group, report_group;
     MPI_Comm all_field_comm; // Communicator for all sub fields
     MPI_Comm field_comm; // for other players to communicate with this sub field
     MPI_Comm report_comm; // to report data from all players 
@@ -586,7 +587,7 @@ int main(int argc, char *argv[])
 
     // Initialization
 
-    MPI_Comm_group(MPI_COMM_WORLD, &orig_comm);
+    MPI_Comm_group(MPI_COMM_WORLD, &orig_group);
 
     if (is_field_rank(rank)) {
         MPI_Comm_split(MPI_COMM_WORLD, rank, rank, &field_comm);
