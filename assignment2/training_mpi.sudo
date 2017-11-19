@@ -1,0 +1,38 @@
+// Field has rank 11, players i (0 -> 10) has rank i
+
+// Initialization
+if this is field process {
+    randomly generate all players position in the field
+    randomly generate ball position in the field
+    for each player p {
+        Send position of p to process rank p
+    }
+} else {
+    Receive position from the field process
+    Kicked ball times = 0
+    Reached ball times = 0
+    Total meters run = 0
+}
+    
+wait for all process reach here
+
+for round = 1 to 900 {
+    if this is field process {
+        send ball position to all players processes
+        get back new positions from all processes
+        if there is some 
+        decide the winner of the ball
+        send the winner process rank to all the players which reached the ball
+        
+    } else {
+        receive ball position from field process
+        player run toward the ball and get new position
+        player send new position to field process
+        if this player reached the ball {
+            
+        }
+    }
+}
+
+
+// Start traning
