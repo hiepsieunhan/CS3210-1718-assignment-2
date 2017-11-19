@@ -371,6 +371,7 @@ void collect_players_position(
 ) {
     bool is_player = is_player_rank(rank);
     int field_id = get_sub_field_index(player_position);
+    int size = 0;
     if (is_player) {
         MPI_Comm_split(MPI_COMM_WORLD, field_id, rank, field_comm);
     } else {
@@ -378,6 +379,8 @@ void collect_players_position(
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
+
+    MPI_Comm_size(*field_comm, &size);
 
     if (!is_player) {
         MPI_Gather(player_position_buf, 3, MPI_INT, &players_position_buf[0][0], 3, MPI_INT, 0, *field_comm);
@@ -388,8 +391,7 @@ void collect_players_position(
     }
 
     if (!is_player) {
-        int i, size;
-        MPI_Comm_size(*field_comm, &size);
+        int i;
         clear_players_position(players_position);
         for (i = 1; i < size; i++) {
             int player_id = players_position_buf[i][2] - NUM_FIELD;
@@ -397,7 +399,7 @@ void collect_players_position(
         }
     }
 
-    MPI_Barrier(MPI_COMM_WORLD);
+    // MPI_Barrier(MPI_COMM_WORLD);
 
     MPI_Comm_free(field_comm);
 
@@ -414,6 +416,7 @@ void gather_ball_challenge(
 ) {
     bool is_player = is_player_rank(rank);
     int field_id = get_sub_field_index(ball_position);
+    int size = 0;
     bool is_join = false;
     if (is_player) {
         is_join = is_same(ball_position, player_position);
@@ -425,6 +428,8 @@ void gather_ball_challenge(
         MPI_Comm_split(MPI_COMM_WORLD, color, rank, field_comm);
     }
     MPI_Barrier(MPI_COMM_WORLD);
+
+    MPI_Comm_size(*field_comm, &size);
 
     if (is_join) {
         if (is_player) {
@@ -439,10 +444,9 @@ void gather_ball_challenge(
     *winner = -1;
 
     if (rank == field_id) {
-        int i, size;
+        int i;
         int max_challenge = -1;
         int max_weight = -1; // weight is for tie break using random weight
-        MPI_Comm_size(*field_comm, &size);
         for (i = 1; i < size ; i++) {
             int player_id = ball_challenges[i][0];
             int challenge = ball_challenges[i][1];
@@ -455,7 +459,7 @@ void gather_ball_challenge(
         }
     }
 
-    MPI_Barrier(*field_comm);
+    // MPI_Barrier(*field_comm);
     
     MPI_Comm_free(field_comm);
 
@@ -557,7 +561,7 @@ void gather_players_info(
         printf("--------------------------\n");
     }
 
-    MPI_Barrier(*field_comm);
+    // MPI_Barrier(*field_comm);
 
     MPI_Comm_free(field_comm);
 
