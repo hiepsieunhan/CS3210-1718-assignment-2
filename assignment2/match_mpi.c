@@ -26,6 +26,7 @@
 
 // Config constants so that we can easily change the number of players or the field size,...
 const int TEAM_PLAYER = 11;
+const int NUM_PLAYER = 22;
 const int FIELD_WIDTH = 128;
 const int FIELD_HEIGHT = 96;
 const int SUB_FIELD_SIZE = 32;
@@ -92,6 +93,12 @@ void reverse_position_in_field(int* x) {
 /**
 * Malloc helper method. Note that for 1D and 2D arrays, memory will be continous
 */
+
+int* malloc_array(int size) {
+    int* array = (int*)malloc(sizeof(int) * size);
+    return array;
+}
+
 int** malloc_2d_array(int length, int size) {
     int** array = (int **)malloc(sizeof(int*) * length);
     int* elements = (int *)malloc(sizeof(int) * length * size);
@@ -100,11 +107,6 @@ int** malloc_2d_array(int length, int size) {
 		array[i] = &elements[i * size];
 	}
 	return array;
-}
-
-int* malloc_array(int size) {
-    int* array = (int*)malloc(sizeof(int) * size);
-    return array;
 }
 
 /**
@@ -124,7 +126,7 @@ int* get_all_field_comm_ranks() {
 */
 void clear_players_position(int** players_position) {
     int i, j;
-    for (i = 0; i < TEAM_PLAYER * 2; i++)
+    for (i = 0; i < NUM_PLAYER; i++)
         for (j = 0; j < 2; j++)
             players_position[i][j] = -1;
 }
@@ -147,7 +149,7 @@ bool is_field_rank(int rank) {
 * Check if the rank represent a player
 */
 bool is_player_rank(int rank) {
-    return NUM_FIELD <= rank && rank < NUM_FIELD + 2 * TEAM_PLAYER;
+    return NUM_FIELD <= rank && rank < NUM_FIELD + NUM_PLAYER;
 }
 
 /**
@@ -161,7 +163,7 @@ bool is_team_A_player_rank(int rank) {
 * Check if the rank represent the player in team B (from 23 -> 33)
 */
 bool is_team_B_player_rank(int rank) {
-    return NUM_FIELD + TEAM_PLAYER <= rank && rank < NUM_FIELD + 2 * TEAM_PLAYER;
+    return NUM_FIELD + TEAM_PLAYER <= rank && rank < NUM_FIELD + NUM_PLAYER;
 }
 
 /**
@@ -362,9 +364,53 @@ void player_kick_the_ball(int rank, int* ball_position, int* attrs, int* is_just
     kick_ball_toward_goal(ball_position, target_goal, kick_power);
 }
 
+
+/**
+* Field 0 gather all players position from other fields
+*/
+void gather_all_field_players(
+    MPI_Comm* field_comm, int rank, int** all_gathered_players_position, int** players_position
+) {
+    bool is_field = is_field_rank(rank);
+    if (is_field) {
+        MPI_Comm_split(MPI_COMM_WORLD, 0, rank, field_comm);
+    } else {
+        MPI_Comm_split(MPI_COMM_WORLD, 1, rank, field_comm);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    if (is_field) {
+        int send_count = 2 * NUM_PLAYER;
+        if (rank != 0) {
+            MPI_Gather(&players_position[0][0], send_count, MPI_INT, NULL, send_count, MPI_INT, 0, *field_comm);
+        } else {
+            MPI_Gather(&players_position[0][0], send_count, MPI_INT, &all_gathered_players_position[0][0], send_count, MPI_INT, 0, *field_comm);
+            int i, j, fid;
+            clear_players_position(players_position);
+            for (fid = 0; fid < NUM_FIELD; fid++)
+                for (i = 0; i < NUM_PLAYER; i++)
+                    for (j = 0; j < 1; j++) {
+                        int value = all_gathered_players_position[fid][i * 2 + j];
+                        if (value >= 0) {
+                            players_position[i][j] = value;
+                        }
+                    }
+        }
+    }
+
+    MPI_Comm_free(field_comm);
+    MPI_Barrier(MPI_COMM_WORLD);
+}
+
+
 /**
 * Collect all player positions into field 0 and broadcast to all players
 */
+void collect_players_position_and_broadcast(
+    MPI_Comm* field_comm, int rank, int** all_gathered_players_position, int** players_position
+) {
+    gather_all_field_players(field_comm, rank, all_gathered_players_position, players_position);
+    MPI_Bcast(&players_position[0][0], NUM_PLAYER * 2, MPI_INT, 0, MPI_COMM_WORLD);
+}
 
 
 /**
@@ -550,7 +596,7 @@ void gather_players_info(
         int i;
         printf("Round %d\n", round_cnt);
         printf("Ball position: %d %d\n", pre_ball_position[0], pre_ball_position[1]);
-        for (i = 1; i <= 2 * TEAM_PLAYER; i++) {
+        for (i = 1; i <= NUM_PLAYER; i++) {
             if (i == 1)
                 printf("Team A player info:\n");
             if (i == TEAM_PLAYER + 1)
@@ -581,7 +627,7 @@ int main(int argc, char *argv[])
     MPI_Group orig_group, all_field_group;
     MPI_Comm all_field_comm; // Communicator for all sub fields
     MPI_Comm field_comm; // for other players to communicate with this sub field
-    int** players_position = malloc_2d_array(TEAM_PLAYER * 2, 2);
+    int** players_position = malloc_2d_array(NUM_PLAYER, 2);
     int** players_position_buf = NULL;
     int** ball_challenges = NULL;
     int** all_gathered_players_position = NULL; // For process 0 only
@@ -618,13 +664,12 @@ int main(int argc, char *argv[])
     MPI_Comm_group(MPI_COMM_WORLD, &orig_group);
 
     if (is_field_rank(rank)) {
-        // Setup comm for sub field
-        // MPI_Group_incl(orig_group, NUM_FIELD, get_all_field_comm_ranks(), &all_field_group);
-        // MPI_Comm_create(MPI_COMM_WORLD, all_field_group, &all_field_comm);
-
-        players_position_buf = malloc_2d_array(TEAM_PLAYER * 2 + 1, 3);
-        ball_challenges = malloc_2d_array(TEAM_PLAYER * 2 + 1, 2);
+        players_position_buf = malloc_2d_array(NUM_PLAYER + 1, 3);
+        ball_challenges = malloc_2d_array(NUM_PLAYER + 1, 2);
         players_info = malloc_2d_array(NUM_PROC, 7);
+        if (rank == 0) {
+            all_gathered_players_position = malloc_2d_array(NUM_FIELD, NUM_PLAYER * 2);
+        }
     } else if (is_player_rank(rank)) {
         // Set attributes to this players
         set_attributes(rank, attributes);
