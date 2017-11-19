@@ -11,6 +11,8 @@
 * 0 -> 11: Field processes.
 * 12 -> 22: Team A players
 * 23 -> 33: Team B players
+* 
+* For strategy: Team A will attach when team B will defend
 * ======================================================================
 **/
 
@@ -199,6 +201,22 @@ bool get_target_goal(int rank) {
 }
 
 /**
+* Check if player rank is defending or attaching
+* - Defending when the ball is in their half field 
+* - Attaching when the ball is in the half field that contains the target goal
+*/
+bool is_attaching(int rank, int* ball_position) {
+    int is_ball_in_left_half = ball_position[0] < FIELD_WIDTH / 2;
+    bool target_goal = get_target_goal(rank);
+    return is_ball_in_left_half == target_goal;
+}
+
+void set_target_goal(int rank, int* goal) {
+    goal[0] = get_target_goal(rank) ? 0 : FIELD_WIDTH - 1;
+    goal[1] = (GOAL_Y_POSITION[0] + GOAL_Y_POSITION[1]) / 2;
+}
+
+/**
 * Assign the l_pos values with r_pos values
 */
 void assign_position(int* l_pos, int* r_pos) {
@@ -270,7 +288,8 @@ void set_attributes(int rank, int* attributes) {
 }
 
 /**
-* TODO: change this to use strategy
+* Reset all players position randomly and put the ball in the center of the field
+* this method is used after a goal or in the beging of a half.
 */
 void reset_positions(int rank, int* ball_position, int* player_position) {
     reset_ball_position(ball_position);
@@ -322,45 +341,145 @@ void player_follow_ball(int* position, int* ball_position, int* attrs) {
 	forward_position(position, ball_position, max_run);
 }
 
+void player_run_toward_goal(int rank, int* position, int* attrs) {
+    int max_run = attrs[0];
+    int* target = malloc_array(2);
+    set_target_goal(rank, target);
+    forward_position(position, target, max_run);
+    
+    free(target);    
+}
+
+void player_go_back_to_defend(int rank, int* position, int* attrs) {
+    int max_run = attrs[0];
+    int* target = malloc_array(2);
+    get_random_position(SUB_FIELD_SIZE, FIELD_HEIGHT, target);
+    if (get_target_goal(rank)) {
+        reverse_position_in_field(target);
+    }
+    forward_position(position, target, max_run);
+
+    free(target);
+}
+
+void get_target_nearest_position(int rank, int** players_position, int* position) {
+    int* target = malloc_array(2);
+    int start_index = is_team_A_player_rank(rank) ? 0 : TEAM_PLAYER;
+    int i;
+    int min_distance = 10000000;
+    set_target_goal(rank, target);
+
+    for (i = 0; i < TEAM_PLAYER; i++) {
+        int* cur_position = players_position[start_index + i];
+        int distance = get_distance(cur_position, target);
+        if (distance < min_distance) {
+            assign_position(position, cur_position);
+        }
+    }
+    free(target);
+}
+
 /**
 * Kick the ball toward the goal - To simplify, just target the ball into 
 *   center of the goal
 */
-void kick_ball_toward_goal(int* position, bool target_goal, int kick_power) {
-    int* goal_center = malloc_array(2);
+void kick_ball_toward_goal(int rank, int* position, int kick_power) {
+    int* target = malloc_array(2);
 
-    goal_center[0] = target_goal ? 0 : FIELD_WIDTH - 1;
-    goal_center[1] = (GOAL_Y_POSITION[0] + GOAL_Y_POSITION[1]) / 2;
-    forward_position(position, goal_center, 2 * kick_power);
+    set_target_goal(rank, target);
+    forward_position(position, target, 2 * kick_power);
 
-    free(goal_center);
+    free(target);
+}
+
+
+/**
+* Pass the ball toward the nearest players who nearer to the target goal
+*/
+void kick_ball_toward_teammate(int rank, int* position, int** players_position, int kick_power) {
+    int* target = malloc_array(2);
+    get_target_nearest_position(rank, players_position, target);
+    // if the goal-nearest teammate is himself, just kick the ball toward the goal
+    if (is_same(target, position)) {
+        set_target_goal(rank, target);
+    }
+    forward_position(position, target, 2 * kick_power);
+
+    free(target);
+}
+
+// Count how many other players in the same team nearer to the ball, including itself
+int get_target_nearest_rank(int rank, int* position, int* target, int** players_position) {
+    int start_index = is_team_A_player_rank(rank) ? 0 : TEAM_PLAYER;
+    int i;
+    int player_index = is_team_A_player_rank(rank) ? get_team_A_player_index(rank) : get_team_B_player_index(rank);
+    int player_distance = get_distance(position, target);
+    int cnt = 1;
+    for (i = 0; i < TEAM_PLAYER; i++) if (i != player_index) {
+        int distance = get_distance(target, players_position[i + start_index]);
+        if (distance < player_distance || (distance == player_distance && i < player_index))
+            cnt++;
+    }
+    return cnt;
 }
 
 /**
 * Get player new position, depend on stretagy
-* TODO: implement this method
 */
-void get_player_new_position(int rank, int* position, int* ball_position, int* attrs) {
-    player_follow_ball(position, ball_position, attrs);
+void get_player_new_position(int rank, int* position, int* ball_position, int* attrs, int** players_position) {
+    bool attaching = is_attaching(rank, ball_position);
+    bool is_team_A = is_team_A_player_rank(rank);
+
+    if (!attaching) {
+        // if defending, all players run forward the ball
+        player_follow_ball(position, ball_position, attrs);
+    } else {
+        int cnt = get_target_nearest_rank(rank, position, ball_position, players_position);
+        if (is_team_A) {
+            if (cnt <= 8) {
+                player_follow_ball(position, ball_position, attrs);
+            } else {
+                player_run_toward_goal(rank, position, attrs);
+            }
+        } else {
+            if (cnt <= 3) {
+                player_follow_ball(position, ball_position, attrs);
+            } else if (cnt <= 5) {
+                player_run_toward_goal(rank, position, attrs);
+            } else {
+                player_go_back_to_defend(rank, position, attrs);
+            }
+        }
+    }
 }
 
 /**
 * Player decide to kick the ball
 */
-void player_kick_the_ball(int rank, int* ball_position, int* attrs, int* is_just_scored) {
+void player_kick_the_ball(int rank, int* ball_position, int* attrs, int** players_position, int* is_just_scored) {
     if (!is_player_rank(rank)) {
         return;
     }
     *is_just_scored = 0;
     int kick_power = attrs[2];
     bool target_goal = get_target_goal(rank);
+    bool is_team_A = is_team_A_player_rank(rank);
     if (can_player_score_from_position(ball_position, target_goal, kick_power)) {
         // If this player can score, just score, and we dont need to care about new ball position
         *is_just_scored = 1;
         return;
     }
-    // TODO: decide position using strategy, For now just kick the ball forward the goal
-    kick_ball_toward_goal(ball_position, target_goal, kick_power);
+    // Team A player will always kick the ball toward the target goal
+    if (is_team_A) {
+        kick_ball_toward_goal(rank, ball_position, kick_power);
+    } else {
+        int r = rand() % 3 == 0;
+        if (r == 0) {
+            kick_ball_toward_goal(rank, ball_position, kick_power);
+        } else {
+            kick_ball_toward_teammate(rank, ball_position, players_position, kick_power);
+        }
+    }
 }
 
 
@@ -525,12 +644,12 @@ void broadcast_ball_winner(int* ball_position, int* winner) {
 /**
 * The winner kick the ball and bcast new ball position to all other processes
 */
-void kick_ball_and_broadcast_ball_position(int rank, int winner, int* attrs, int* ball_position, int* is_just_scored) {
+void kick_ball_and_broadcast_ball_position(int rank, int winner, int* attrs, int* ball_position, int** players_position, int* is_just_scored) {
     if (!is_player_rank(winner)) {
         return;
     }
     if (winner == rank) {
-        player_kick_the_ball(rank, ball_position, attrs, is_just_scored);
+        player_kick_the_ball(rank, ball_position, attrs, players_position, is_just_scored);
     }
     MPI_Bcast(ball_position, 2, MPI_INT, winner, MPI_COMM_WORLD);
 }
@@ -600,7 +719,7 @@ void gather_players_info(
                 printf("Team B player info:\n");
             printf(
                 "%d %d %d %d %d %d %d %d\n",
-                player_id
+                player_id,
                 players_info[i][0], players_info[i][1],
                 players_info[i][2], players_info[i][3],
                 players_info[i][4], players_info[i][5],
@@ -703,10 +822,10 @@ int main(int argc, char *argv[])
         MPI_Bcast(ball_position, 2, MPI_INT, 0, MPI_COMM_WORLD);
         assign_position(pre_ball_position, ball_position);
 
-        // Player run to new posiiton
+        // Player run to new position
         if (is_player) {
             assign_position(pre_player_position, player_position);
-            get_player_new_position(rank, player_position, ball_position, attributes);
+            get_player_new_position(rank, player_position, ball_position, attributes, players_position);
         }
 
         collect_players_position(
@@ -723,7 +842,7 @@ int main(int argc, char *argv[])
 
         broadcast_ball_winner(ball_position, &ball_winner);
 
-        kick_ball_and_broadcast_ball_position(rank, ball_winner, attributes, ball_position, &is_just_scored);
+        kick_ball_and_broadcast_ball_position(rank, ball_winner, attributes, ball_position, players_position, &is_just_scored);
 
         broadcast_score_check(rank, ball_winner, &is_just_scored, score);
 
