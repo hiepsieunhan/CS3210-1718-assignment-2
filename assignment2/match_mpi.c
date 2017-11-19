@@ -507,7 +507,9 @@ void gather_players_info(
     int* pre_ball_position, int* player_position, int* pre_player_position,
     int* player_info, int** players_info, int* score
 ) {
+    bool is_join = false;
     if (is_player_rank(rank)) {
+        is_join = true;
         player_info[0] = pre_player_position[0];
         player_info[1] = pre_player_position[1];
         player_info[2] = player_position[0];
@@ -517,10 +519,14 @@ void gather_players_info(
         player_info[6] = ball_challenge;
         MPI_Comm_split(MPI_COMM_WORLD, 0, rank, field_comm);
     } else {
-        int color = rank == 0 ? 0 : MPI_UNDEFINED;
+        is_join = rank == 0;
+        int color = is_join ? 0 : MPI_UNDEFINED;
         MPI_Comm_split(MPI_COMM_WORLD, color, rank, field_comm);
     }
-    MPI_Gather(player_info, 7, MPI_INT, &players_info[0][0], 7, MPI_INT, 0, *field_comm);
+    
+    if (is_join) {
+        MPI_Gather(player_info, 7, MPI_INT, &players_info[0][0], 7, MPI_INT, 0, *field_comm);
+    }
 
     if (rank == 0) {
         int i;
@@ -542,6 +548,12 @@ void gather_players_info(
         printf("Score: %d %d\n", score[0], score[1]);
         printf("--------------------------");
     }
+
+    MPI_Barrier(*field_comm);
+
+    MPI_Comm_free(field_comm);
+
+    MPI_Barrier(MPI_COMM_WORLD);
 }
 
 int main(int argc, char *argv[])
@@ -655,12 +667,10 @@ int main(int argc, char *argv[])
 
         broadcast_score_check(rank, ball_winner, &is_just_scored, score);
 
-        if (rank == 0 || is_player) {
-            gather_players_info(
-                round_cnt, &field_comm, rank, ball_winner, ball_challenge[1], pre_ball_position,
-                player_position, pre_player_position, player_info, players_info, score
-            );
-        }
+        gather_players_info(
+            round_cnt, &field_comm, rank, ball_winner, ball_challenge[1], pre_ball_position,
+            player_position, pre_player_position, player_info, players_info, score
+        );
 
         MPI_Barrier(MPI_COMM_WORLD);
     }
