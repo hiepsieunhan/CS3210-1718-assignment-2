@@ -593,12 +593,14 @@ void gather_players_info(
         printf("Round %d\n", round_cnt);
         printf("Ball position: %d %d\n", pre_ball_position[0], pre_ball_position[1]);
         for (i = 1; i <= NUM_PLAYER; i++) {
+            int player_id = (i - 1) % TEAM_PLAYER;
             if (i == 1)
                 printf("Team A player info:\n");
             if (i == TEAM_PLAYER + 1)
                 printf("Team B player info:\n");
             printf(
-                "%d %d %d %d %d %d %d\n",
+                "%d %d %d %d %d %d %d %d\n",
+                player_id
                 players_info[i][0], players_info[i][1],
                 players_info[i][2], players_info[i][3],
                 players_info[i][4], players_info[i][5],

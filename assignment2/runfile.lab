@@ -1,0 +1,7 @@
+make -f makefile.lab
+
+echo "Start training...."
+make -f makefile.lab training
+
+echo "Start a match...."
+make -f makefile.lab match
