@@ -5,7 +5,7 @@
 
 const int NMAX = 100000;
 
-int a[NMAX], b[NMAX], c[NMAX];
+int a[10000], b[10000], c[10000];
 
 int is_valid_attr(int value) {
     return 2 <= value && value <= 8;
