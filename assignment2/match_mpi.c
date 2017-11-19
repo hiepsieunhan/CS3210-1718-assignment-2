@@ -12,7 +12,7 @@
 * 12 -> 22: Team A players
 * 23 -> 33: Team B players
 * 
-* For strategy: Team A will attach when team B will defend
+* For strategy: Team A will attack when team B will defend
 * ======================================================================
 **/
 
@@ -201,11 +201,11 @@ bool get_target_goal(int rank) {
 }
 
 /**
-* Check if player rank is defending or attaching
+* Check if player rank is defending or attacking
 * - Defending when the ball is in their half field 
-* - Attaching when the ball is in the half field that contains the target goal
+* - attacking when the ball is in the half field that contains the target goal
 */
-bool is_attaching(int rank, int* ball_position) {
+bool is_attacking(int rank, int* ball_position) {
     int is_ball_in_left_half = ball_position[0] < FIELD_WIDTH / 2;
     bool target_goal = get_target_goal(rank);
     return is_ball_in_left_half == target_goal;
@@ -427,10 +427,10 @@ int get_target_nearest_rank(int rank, int* position, int* target, int** players_
 * Get player new position, depend on stretagy
 */
 void get_player_new_position(int rank, int* position, int* ball_position, int* attrs, int** players_position) {
-    bool attaching = is_attaching(rank, ball_position);
+    bool attacking = is_attacking(rank, ball_position);
     bool is_team_A = is_team_A_player_rank(rank);
 
-    if (!attaching) {
+    if (!attacking) {
         // if defending, all players run forward the ball
         player_follow_ball(position, ball_position, attrs);
     } else {
@@ -464,7 +464,7 @@ void player_kick_the_ball(int rank, int* ball_position, int* attrs, int** player
     int kick_power = attrs[2];
     bool target_goal = get_target_goal(rank);
     bool is_team_A = is_team_A_player_rank(rank);
-    bool attaching = is_attaching(rank, ball_position);
+    bool attacking = is_attacking(rank, ball_position);
     if (can_player_score_from_position(ball_position, target_goal, kick_power)) {
         // If this player can score, just score, and we dont need to care about new ball position
         *is_just_scored = 1;
@@ -475,7 +475,7 @@ void player_kick_the_ball(int rank, int* ball_position, int* attrs, int** player
         kick_ball_toward_goal(rank, ball_position, kick_power);
     } else {
         int r = rand() % 3 == 0;
-        if (!attaching || r == 0) {
+        if (!attacking || r == 0) {
             kick_ball_toward_goal(rank, ball_position, kick_power);
         } else {
             kick_ball_toward_teammate(rank, ball_position, players_position, kick_power);

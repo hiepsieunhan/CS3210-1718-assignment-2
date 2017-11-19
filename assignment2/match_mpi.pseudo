@@ -3,7 +3,7 @@
 * Team A players: rank 12 -> 22
 * Team B players: rank 23 -> 33
 * 
-* Team A will attach when team B is tatical defending team
+* Team A will attack when team B is tatical defending team
 */
 
 
@@ -71,7 +71,7 @@ GetPlayerNewPosition() {
     If ball in home side {
         player-position = follow the ball position
     } else {
-        if attaching team {
+        if attacking team {
             if player in top 8 players nearest the ball
                 player-position = follow the ball position
             else
@@ -134,7 +134,7 @@ KickBallAndBroadcastBallPosition() {
         score goal
         return
     }
-    if is attaching team {
+    if is attacking team {
         kick the ball toward the target goal
     } else {
         kick the ball toward the target goal with probability 33%
