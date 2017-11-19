@@ -409,24 +409,31 @@ void collect_players_position(
 */
 void gather_ball_challenge(
     MPI_Comm* field_comm, int rank, int* attrs,
+    int* player_position, int* ball_position,
     int* ball_challenge, int** ball_challenges, int* winner
 ) {
     bool is_player = is_player_rank(rank);
-    int field_id = get_sub_field_index(ball_challenge);
+    int field_id = get_sub_field_index(ball_position);
+    bool is_join = false;
     if (is_player) {
+        is_join = is_same(ball_position, player_position);
+        int color = is_join ? 0 : MPI_UNDEFINED;
         MPI_Comm_split(MPI_COMM_WORLD, 0, rank, field_comm);
     } else {
-        int color = rank == field_id ? 0 : MPI_UNDEFINED;
+        is_join = rank == field_id;
+        int color = is_join ? 0 : MPI_UNDEFINED;
         MPI_Comm_split(MPI_COMM_WORLD, color, rank, field_comm);
     }
     MPI_Barrier(MPI_COMM_WORLD);
 
-    if (is_player) {
-        ball_challenge[0] = rank;
-        ball_challenge[1] = attrs[1] * (rand() % 10 + 1);
-        MPI_Gather(ball_challenge, 2, MPI_INT, NULL, 2, MPI_INT, 0, *field_comm); 
-    } else {
-        MPI_Gather(ball_challenge, 2, MPI_INT, &ball_challenges[0][0], 2, MPI_INT, 0, *field_comm); 
+    if (is_join) {
+        if (is_player) {
+            ball_challenge[0] = rank;
+            ball_challenge[1] = attrs[1] * (rand() % 10 + 1);
+            MPI_Gather(ball_challenge, 2, MPI_INT, NULL, 2, MPI_INT, 0, *field_comm); 
+        } else {
+            MPI_Gather(ball_challenge, 2, MPI_INT, &ball_challenges[0][0], 2, MPI_INT, 0, *field_comm); 
+        }
     }
 
     *winner = -1;
@@ -636,13 +643,11 @@ int main(int argc, char *argv[])
         );
 
         ball_challenge[1] = -1;
-        // If the process is the player who reached the ball, or the field that the ball is located at
-        if (
-            (is_player && is_same(ball_position, player_position))
-            || (is_field_rank(rank) && get_sub_field_index(ball_position) == rank)
-        ) {
-            gather_ball_challenge(&field_comm, rank, attributes, ball_challenge, ball_challenges, &ball_winner);
-        }
+
+        gather_ball_challenge(
+            &field_comm, rank, attributes, player_position, ball_position,
+            ball_challenge, ball_challenges, &ball_winner
+        );
 
         broadcast_ball_winner(ball_position, &ball_winner);
 
