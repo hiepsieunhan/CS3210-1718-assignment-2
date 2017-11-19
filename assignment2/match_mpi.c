@@ -491,7 +491,7 @@ void broadcast_score_check(int rank, int winner, int* is_just_scored, int* score
         return;
     MPI_Bcast(is_just_scored, 1, MPI_INT, winner, MPI_COMM_WORLD);
     // Update score at process 0
-    if (rank == 0 && is_just_scored) {
+    if (rank == 0 && *is_just_scored) {
         if (is_team_A_player_rank(winner))
             score[0]++;
         else
@@ -554,7 +554,7 @@ void gather_players_info(
             );
         }
         printf("Score: %d %d\n", score[0], score[1]);
-        printf("--------------------------");
+        printf("--------------------------\n");
     }
 
     MPI_Barrier(*field_comm);
