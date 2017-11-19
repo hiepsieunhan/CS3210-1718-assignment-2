@@ -43,30 +43,31 @@ const int GOAL_Y_POSITION[2] = {43, 51};
 * Attributes are speed, dribbling and kick power in order
 */
 const int ATTRS_TEAM_A[11][3] = {
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5}
+    {10, 2, 3},
+    {4, 3, 8},
+    {6, 3, 6},
+    {10, 3, 2},
+    {6, 7, 2},
+    {8, 3, 4},
+    {5, 6, 4},
+    {4, 7, 4},
+    {7, 6, 2},
+    {7, 5, 3},
+    {5, 3, 7}
 };
+
 const int ATTRS_TEAM_B[11][3] = {
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5},
-    {5, 5, 5}
+    {8, 5, 2},
+    {2, 9, 4},
+    {7, 3, 5},
+    {3, 9, 3},
+    {2, 5, 8},
+    {6, 4, 5},
+    {2, 8, 5},
+    {7, 3, 5},
+    {3, 10, 2},
+    {8, 4, 3},
+    {3, 6, 6}
 };
 
 // As we all use the same tag, just make it as global
@@ -362,6 +363,11 @@ void player_kick_the_ball(int rank, int* ball_position, int* attrs, int* is_just
 }
 
 /**
+* Collect all player positions into field 0 and broadcast to all players
+*/
+
+
+/**
 * Collect players position for all fields
 */
 void collect_players_position(
@@ -578,7 +584,7 @@ int main(int argc, char *argv[])
     int** players_position = malloc_2d_array(TEAM_PLAYER * 2, 2);
     int** players_position_buf = NULL;
     int** ball_challenges = NULL;
-    // int** all_gathered_players_position = NULL; // For process 0 only
+    int** all_gathered_players_position = NULL; // For process 0 only
     int** players_info = NULL;
 
     int ball_position[2] = {0, 0};
