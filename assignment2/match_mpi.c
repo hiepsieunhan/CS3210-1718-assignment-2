@@ -79,13 +79,13 @@ int current_half = 1;
 *   Get random position in the field of size (field_width, field_height)
 */
 void get_random_position(int field_width, int field_height, int* x) {
-	x[0] = (rand() % (field_width ));
+	x[0] = (rand() % (field_width));
 	x[1] = (rand() % (field_height));
 }
 
 void reverse_position_in_field(int* x) {
-    x[0] = FIELD_WIDTH - x[0];
-    x[1] = FIELD_HEIGHT - x[1];
+    x[0] = FIELD_WIDTH - 1 - x[0];
+    x[1] = FIELD_HEIGHT - 1 - x[1];
 }
 
 /**
@@ -228,9 +228,9 @@ void reset_ball_position(int* x) {
 * Get the subfield index that the position belongs to
 */
 int get_sub_field_index(int* position) {
-    int row_index = position[0] / SUB_FIELD_SIZE;
-    int col_index = position[1] / SUB_FIELD_SIZE;
-    return row_index * SUB_FIELD_COUNT_X + col_index;
+    int x_index = position[0] / SUB_FIELD_SIZE;
+    int y_index = position[1] / SUB_FIELD_SIZE;
+    return y_index * SUB_FIELD_COUNT_X + x_index;
 }
 
 /**
@@ -383,7 +383,7 @@ void collect_players_position(
         MPI_Gather(player_position_buf, 3, MPI_INT, &players_position_buf[0][0], 3, MPI_INT, 0, *field_comm);
     } else {
         assign_position(player_position_buf, player_position);
-        player_position[2] = rank;
+        player_position_buf[2] = rank;
         MPI_Gather(player_position_buf, 3, MPI_INT, NULL, 3, MPI_INT, 0, *field_comm);
     }
 
@@ -391,8 +391,8 @@ void collect_players_position(
         int i, size;
         MPI_Comm_size(*field_comm, &size);
         clear_players_position(players_position);
-        for (i = 0; i < size - 1; i++) {
-            int player_id = players_position_buf[i][2];
+        for (i = 1; i < size; i++) {
+            int player_id = players_position_buf[i][2] - NUM_FIELD;
             assign_position(players_position[player_id], players_position_buf[i]);
         }
     }
@@ -582,10 +582,10 @@ int main(int argc, char *argv[])
 
     if (is_field_rank(rank)) {
         // Setup comm for sub field
-        MPI_Group_incl(orig_group, NUM_FIELD, get_all_field_comm_ranks(), &all_field_group);
-        MPI_Comm_create(MPI_COMM_WORLD, all_field_group, &all_field_comm);
+        // MPI_Group_incl(orig_group, NUM_FIELD, get_all_field_comm_ranks(), &all_field_group);
+        // MPI_Comm_create(MPI_COMM_WORLD, all_field_group, &all_field_comm);
 
-        players_position_buf = malloc_2d_array(TEAM_PLAYER * 2 + 1, 2);
+        players_position_buf = malloc_2d_array(TEAM_PLAYER * 2 + 1, 3);
         ball_challenges = malloc_2d_array(TEAM_PLAYER * 2 + 1, 2);
         if (rank == 0) {
             players_info = malloc_2d_array(NUM_PROC, 7);
