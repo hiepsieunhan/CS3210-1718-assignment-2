@@ -366,34 +366,28 @@ void player_kick_the_ball(int rank, int* ball_position, int* attrs, int* is_just
 
 
 /**
-* Field 0 gather all players position from other fields
+* Field 0 gather all players position from all player
 */
 void gather_all_field_players(
-    MPI_Comm* field_comm, int rank, int** all_gathered_players_position, int** players_position
+    MPI_Comm* field_comm, int rank, int** all_gathered_players_position,
+    int** players_position, int* player_position
 ) {
-    bool is_field = is_field_rank(rank);
-    if (is_field) {
+    bool is_player = is_player_rank(rank);
+    if (is_player || rank == 0) {
         MPI_Comm_split(MPI_COMM_WORLD, 0, rank, field_comm);
     } else {
         MPI_Comm_split(MPI_COMM_WORLD, 1, rank, field_comm);
     }
     MPI_Barrier(MPI_COMM_WORLD);
-    if (is_field) {
-        int send_count = 2 * NUM_PLAYER;
-        if (rank != 0) {
-            MPI_Gather(&players_position[0][0], send_count, MPI_INT, NULL, send_count, MPI_INT, 0, *field_comm);
+    if (rank == 0 || is_player) {
+        if (is_player) {
+            MPI_Gather(player_position, 2, MPI_INT, NULL, 2, MPI_INT, 0, *field_comm);
         } else {
-            MPI_Gather(&players_position[0][0], send_count, MPI_INT, &all_gathered_players_position[0][0], send_count, MPI_INT, 0, *field_comm);
-            int i, j, fid;
-            clear_players_position(players_position);
-            for (fid = 0; fid < NUM_FIELD; fid++)
-                for (i = 0; i < NUM_PLAYER; i++)
-                    for (j = 0; j < 1; j++) {
-                        int value = all_gathered_players_position[fid][i * 2 + j];
-                        if (value >= 0) {
-                            players_position[i][j] = value;
-                        }
-                    }
+            MPI_Gather(player_position, 2, MPI_INT, &all_gathered_players_position[0][0], 2, MPI_INT, 0, *field_comm);
+            int i, j;
+            for (i = 0; i < NUM_PLAYER; i++)
+                for (j = 0; j < 2; j++)
+                    players_position[i][j] = all_gathered_players_position[i + 1][j];
         }
     }
 
@@ -406,9 +400,12 @@ void gather_all_field_players(
 * Collect all player positions into field 0 and broadcast to all players
 */
 void collect_players_position_and_broadcast(
-    MPI_Comm* field_comm, int rank, int** all_gathered_players_position, int** players_position
+    MPI_Comm* field_comm, int rank, int** all_gathered_players_position,
+    int** players_position, int* player_position
 ) {
-    gather_all_field_players(field_comm, rank, all_gathered_players_position, players_position);
+    gather_all_field_players(
+        field_comm, rank, all_gathered_players_position, players_position, player_position
+    );
     MPI_Bcast(&players_position[0][0], NUM_PLAYER * 2, MPI_INT, 0, MPI_COMM_WORLD);
 }
 
@@ -668,7 +665,7 @@ int main(int argc, char *argv[])
         ball_challenges = malloc_2d_array(NUM_PLAYER + 1, 2);
         players_info = malloc_2d_array(NUM_PROC, 7);
         if (rank == 0) {
-            all_gathered_players_position = malloc_2d_array(NUM_FIELD, NUM_PLAYER * 2);
+            all_gathered_players_position = malloc_2d_array(NUM_PLAYER + 1, 2);
         }
     } else if (is_player_rank(rank)) {
         // Set attributes to this players
@@ -697,7 +694,9 @@ int main(int argc, char *argv[])
         round_cnt++;
         is_just_scored = false;
 
-        // TODO: get all players position to field 0 and bcast to all players.
+        collect_players_position_and_broadcast(
+            &field_comm, rank, all_gathered_players_position, players_position, player_position
+        );
 
         // Broadcast ball position from field 0 to all other processes
         MPI_Bcast(ball_position, 2, MPI_INT, 0, MPI_COMM_WORLD);
