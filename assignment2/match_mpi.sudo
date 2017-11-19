@@ -1,0 +1,200 @@
+/*
+* Sub field ranks from 0 -> 11
+* Team A players: rank 12 -> 22
+* Team B players: rank 23 -> 33
+* 
+* Team A will attach when team B is tatical defending team
+*/
+
+
+/*
+* Reset player and ball position
+* Will be call in beginning of a half, or after a team scored
+*/
+ResetAllPosition() {
+    If process is player {
+        sub-field = get home field of this player's team
+        player-position = random position in sub-field
+    }
+    ball-position = center-of-field
+}
+
+/*
+* All players send position to the field in charge
+*/
+CollectPlayersPosition() {
+    comm = new MPI_Comm
+    if player {
+        field-id = field contains this players
+        comm = MPI_Comm_split(MPI_COMM_WORLD, field-id, rank)
+    } else {
+        comm = MPI_Comm_split(MPI_COMM_WORLD, rank, rank)
+    }
+    MPI_Barrier(MPI_COMM_WORLD)
+
+    MPI_Gather players position in comm
+
+    free(comm)
+}
+
+/*
+* Field 0 gathers all players position
+* Then field 0 broacst all players position back to all players
+*/
+GatherPlayersPositionAndBroadcast() {
+    comm = new MPI_Comm
+    // Split field 0 and all players in same group
+    if is player process {
+        comm = MPI_Comm_split(MPI_COMM_WORLD, 0, rank, comm)
+    } else {
+        if rank = 0
+            MPI_Comm_split(MPI_COMM_WORLD, 0, rank, comm)
+        else 
+            MPI_Comm_split(MPI_COMM_WORLD, 1, rank, comm)
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD)
+
+    if is player or rank == 0 {
+        MPI_Gather all players position into process 0 in comm
+    }
+
+    free(comm)
+
+    MPI_Bcast players position to all other processes in MPI_COMM_WORLD from process 0
+}
+
+/*
+* Get player position base on his position, ball position and strategy
+*/
+GetPlayerNewPosition() {
+    If ball in home side {
+        player-position = follow the ball position
+    } else {
+        if attaching team {
+            if player in top 8 players nearest the ball
+                player-position = follow the ball position
+            else
+                player-position = run toward the target-goal
+        } else {
+            if player in top 3 players nearest the ball
+                player-position = follow the ball position
+            else if player in top 5 players nearest the ball
+                player-position = run toward the target-goal
+            else
+                player-position = run back to home field to defend
+        }
+    }
+}
+
+/**
+* The field process contains the ball gather the ball challenge
+*/
+GatherBallChallenge() {
+    comm = new MPI_Comm 
+    if (
+        (is player and player-position = ball-position)
+        or (is field and contains the ball)
+    )   comm = MPI_Comm_split(MPI_COMM_WORLD, 0, rank)
+    else
+        comm = MPI_Comm_split(MPI_COMM_WORLD, 1, rank)
+    
+    MPI_Barrier(MPI_COMM_WORLD)
+
+    // rank 0 in comm is the field process
+    MPI_Gather ball challenge into rank 0 of comm
+
+    free(comm)
+}
+
+/**
+* Broadcast player process rank who is ball winner of this round
+*  to all other processes from the field process contains the ball
+*/
+BroadcastBallWinner() {
+    // rank of field process contains the ball
+    root = id of field contains the ball
+    MPI_Bcast ball winner to all player in MPI_COMM_WORLD from root
+}
+
+/**
+* Broadcast ball position from field process 0 to all other processes
+*/
+BroadcastBallPosition() {
+    root = 0 // rank of process field 0
+    MPI_Bcast ball position to all player in MPI_COMM_WORLD from root
+}
+
+/**
+* Kick the ball depend on the strategy and broacst new ball position
+* This method should be used by the ball winner of this round
+*/
+KickBallAndBroadcastBallPosition() {
+    if can score goal {
+        score goal
+        return
+    }
+    if is attaching team {
+        kick the ball toward the target goal
+    } else {
+        kick the ball toward the target goal with probability 33%
+        pass the ball to the teammate nearest the target goal with probability 77%
+    }
+
+    MPI_Bcast ball position to all player in MPI_COMM_WORLD from ball-winner
+}
+
+/**
+* Broadcast whether the winner of the ball score a goal in this round
+*/
+BroadcastScoreCheck() {
+    MPI_Bcast score check to all player in MPI_COMM_WORLD from ball-winner
+    if rank == 0 and ball winner just scored {
+        update score
+    }
+}
+
+/**
+* Gather all players information of the current round into process field 0
+*/
+GatherPlayersInfo() {
+    comm = new MPI_Comm 
+    if is player or rank == 0
+        comm = MPI_Comm_split(MPI_COMM_WORLD, 0, rank)
+    else
+        comm = MPI_Comm_split(MPI_COMM_WORLD, 1, rank)
+    
+    MPI_Barrier(MPI_COMM_WORLD)
+
+    if is player or rank == 0{
+        MPI_Gather all player data into rank 0 of comm
+        if rank == 0 {
+            print out all players information, ball position and current score
+        }
+    }
+    free(comm)
+}
+
+main() {
+    Init mpi
+    init buffers
+    rank = rank of this process
+    // Start the match
+    for round = 1 -> 2700 * 2 {
+        if beginning of a half or some team just scored last round {
+            ResetAllPosition()
+            CollectPlayersPosition()
+        }
+        GatherPlayersPositionAndBroadcast()
+        BroadcastBallPosition()
+        if is player {
+            GetPlayerNewPosition()
+        }
+        CollectPlayersPosition()
+        GatherBallChallenge()
+        BroadcastBallWinner()
+        KickBallAndBroadcastBallPosition()
+        BroadcastScoreCheck()
+        GatherPlayersInfo()
+    }
+}
