@@ -213,7 +213,7 @@ bool is_attaching(int rank, int* ball_position) {
 
 void set_target_goal(int rank, int* goal) {
     goal[0] = get_target_goal(rank) ? 0 : FIELD_WIDTH - 1;
-    goal[1] = (GOAL_Y_POSITION[0] + GOAL_Y_POSITION[1]) / 2;
+    goal[1] = (GOAL_Y_POSITION[0] + GOAL_Y_POSITION[1]) / 2 + (rand() % 9 - 4);
 }
 
 /**
@@ -464,6 +464,7 @@ void player_kick_the_ball(int rank, int* ball_position, int* attrs, int** player
     int kick_power = attrs[2];
     bool target_goal = get_target_goal(rank);
     bool is_team_A = is_team_A_player_rank(rank);
+    bool attaching = is_attaching(rank, ball_position);
     if (can_player_score_from_position(ball_position, target_goal, kick_power)) {
         // If this player can score, just score, and we dont need to care about new ball position
         *is_just_scored = 1;
@@ -474,7 +475,7 @@ void player_kick_the_ball(int rank, int* ball_position, int* attrs, int** player
         kick_ball_toward_goal(rank, ball_position, kick_power);
     } else {
         int r = rand() % 3 == 0;
-        if (r == 0) {
+        if (!attaching || r == 0) {
             kick_ball_toward_goal(rank, ball_position, kick_power);
         } else {
             kick_ball_toward_teammate(rank, ball_position, players_position, kick_power);
