@@ -7,13 +7,17 @@ const int NMAX = 100000;
 
 int a[NMAX], b[NMAX], c[NMAX];
 
+int is_valid_attr(int value) {
+    return 2 <= value && value <= 8;
+}
+
 int main() {
     srand(time(NULL));
     int n = 0;
     int i, j, k;
     for (i = 2 ; i < 15 ; i++) for (j = 2; j < 15 - i; j++) {
         k = 15 - i - j;
-        if (k >=2) {
+        if (is_valid_attr(i) && is_valid_attr(j) && is_valid_attr(k)) {
             a[n] = i;
             b[n] = j;
             c[n] = k;
