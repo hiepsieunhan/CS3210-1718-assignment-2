@@ -397,7 +397,7 @@ void collect_players_position(
         }
     }
 
-    MPI_Barrier(*field_comm);
+    MPI_Barrier(MPI_COMM_WORLD);
 
     MPI_Comm_free(field_comm);
 
@@ -417,11 +417,11 @@ void gather_ball_challenge(
     bool is_join = false;
     if (is_player) {
         is_join = is_same(ball_position, player_position);
-        int color = is_join ? 0 : MPI_UNDEFINED;
-        MPI_Comm_split(MPI_COMM_WORLD, 0, rank, field_comm);
+        int color = is_join ? 0 : 1;
+        MPI_Comm_split(MPI_COMM_WORLD, color, rank, field_comm);
     } else {
         is_join = rank == field_id;
-        int color = is_join ? 0 : MPI_UNDEFINED;
+        int color = is_join ? 0 : 1;
         MPI_Comm_split(MPI_COMM_WORLD, color, rank, field_comm);
     }
     MPI_Barrier(MPI_COMM_WORLD);
@@ -435,7 +435,7 @@ void gather_ball_challenge(
             MPI_Gather(ball_challenge, 2, MPI_INT, &ball_challenges[0][0], 2, MPI_INT, 0, *field_comm); 
         }
     }
-
+    
     *winner = -1;
 
     if (rank == field_id) {
@@ -508,25 +508,33 @@ void gather_players_info(
     int* player_info, int** players_info, int* score
 ) {
     bool is_join = false;
+    bool is_player = is_player_rank(rank);
     if (is_player_rank(rank)) {
         is_join = true;
-        player_info[0] = pre_player_position[0];
-        player_info[1] = pre_player_position[1];
-        player_info[2] = player_position[0];
-        player_info[3] = player_position[1];
-        player_info[4] = (int)is_same(player_position, pre_ball_position);
-        player_info[5] = (int)(winner == rank);
-        player_info[6] = ball_challenge;
         MPI_Comm_split(MPI_COMM_WORLD, 0, rank, field_comm);
     } else {
         is_join = rank == 0;
-        int color = is_join ? 0 : MPI_UNDEFINED;
+        int color = is_join ? 0 : 1;
         MPI_Comm_split(MPI_COMM_WORLD, color, rank, field_comm);
     }
+
+    MPI_Barrier(MPI_COMM_WORLD);
     
     if (is_join) {
-        MPI_Gather(player_info, 7, MPI_INT, &players_info[0][0], 7, MPI_INT, 0, *field_comm);
+        if (is_player) {
+            player_info[0] = pre_player_position[0];
+            player_info[1] = pre_player_position[1];
+            player_info[2] = player_position[0];
+            player_info[3] = player_position[1];
+            player_info[4] = (int)is_same(player_position, pre_ball_position);
+            player_info[5] = (int)(winner == rank);
+            player_info[6] = ball_challenge;
+            MPI_Gather(player_info, 7, MPI_INT, NULL, 7, MPI_INT, 0, *field_comm);
+        } else {
+            MPI_Gather(player_info, 7, MPI_INT, &players_info[0][0], 7, MPI_INT, 0, *field_comm);
+        }
     }
+    
 
     if (rank == 0) {
         int i;
@@ -542,7 +550,7 @@ void gather_players_info(
                 players_info[i][0], players_info[i][1],
                 players_info[i][2], players_info[i][3],
                 players_info[i][4], players_info[i][5],
-                players_info[i][7]
+                players_info[i][6]
             );
         }
         printf("Score: %d %d\n", score[0], score[1]);
@@ -606,10 +614,7 @@ int main(int argc, char *argv[])
 
         players_position_buf = malloc_2d_array(TEAM_PLAYER * 2 + 1, 3);
         ball_challenges = malloc_2d_array(TEAM_PLAYER * 2 + 1, 2);
-        if (rank == 0) {
-            players_info = malloc_2d_array(NUM_PROC, 7);
-            // all_gathered_players_position = malloc_2d_array(NUM_FIELD, TEAM_PLAYER * 4);
-        }
+        players_info = malloc_2d_array(NUM_PROC, 7);
     } else if (is_player_rank(rank)) {
         // Set attributes to this players
         set_attributes(rank, attributes);
